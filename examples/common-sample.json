@@ -1,0 +1,20 @@
+{
+  "format": "urachan-shared",
+  "version": 1,
+  "set": {
+    "id": "sample-common",
+    "name": "サンプル共通定型文",
+    "items": [
+      {
+        "id": "greeting",
+        "title": "お礼文（例）",
+        "text": "ご対応いただき、ありがとうございました。"
+      },
+      {
+        "id": "request",
+        "title": "確認依頼（例）",
+        "text": "内容をご確認のうえ、ご回答をお願いいたします。"
+      }
+    ]
+  }
+}
