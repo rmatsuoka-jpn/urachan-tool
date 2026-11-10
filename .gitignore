@@ -8,3 +8,7 @@ local/
 *.zip
 .DS_Store
 Thumbs.db
+# アプリから出力したJSONを誤ってコミットしない
+urachan-personal*.json
+urachan-common-*.json
+*.backup.json
