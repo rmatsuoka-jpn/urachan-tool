@@ -20,7 +20,8 @@ const FEATURES = [
   { id: "templates", name: "定型文", description: "登録した文章をワンクリックコピー" },
   { id: "dates", name: "日付ツール", description: "西暦・和暦変換と日付計算" },
   { id: "bookmarks", name: "あとで見る", description: "現在のページを保存し、タグで整理" },
-  { id: "images", name: "画像変換", description: "JPEG・PNG・HEICをリサイズ・圧縮・変換" }
+  { id: "images", name: "画像変換", description: "JPEG・PNG・HEICをリサイズ・圧縮・変換" },
+  { id: "tasks", name: "メモ・タスク", description: "簡単なメモから対応履歴・ナレッジ出力まで" }
 ];
 const ERAS = [
   { name: "令和", start: 2019, end: null },
@@ -44,7 +45,8 @@ const DEFAULT_STATE = {
   favoriteKeys: [],
   bookmarks: [],
   bookmarkPresets: structuredClone(DEFAULT_BOOKMARK_PRESETS),
-  bookmarkTags: [...DEFAULT_BOOKMARK_TAGS]
+  bookmarkTags: [...DEFAULT_BOOKMARK_TAGS],
+  tasks: { version: 1, nextNumber: 1, items: [] }
 };
 
 let state = structuredClone(DEFAULT_STATE);
@@ -475,11 +477,13 @@ function validateBackup(data) {
   }
   const bookmarks = data.modules.bookmarks === undefined
     ? null : validateBookmarkData(data.modules.bookmarks);
+  const tasks = data.modules.tasks === undefined
+    ? null : window.UraTasks.validate(data.modules.tasks);
   return {
     personal: validated.personal, favoriteKeys: validated.favoriteKeys,
     visibleModules: [...settings.visibleModules],
     sharedPreferences: preferences.map((pref) => ({ id: pref.id, enabled: pref.enabled })),
-    bookmarks
+    bookmarks, tasks
   };
 }
 function createBackup() {
@@ -490,7 +494,8 @@ function createBackup() {
       templates: { personal: state.personal, favoriteKeys: state.favoriteKeys },
       sharedPreferences: state.sharedPreferences,
       settings: { visibleModules: state.visibleModules },
-      bookmarks: bookmarkDataSnapshot()
+      bookmarks: bookmarkDataSnapshot(),
+      tasks: state.tasks
     }
   };
 }
@@ -701,6 +706,7 @@ function renderHome(main) {
   if (activeModule === "dates") return renderDateTools(main);
   if (activeModule === "bookmarks") return renderBookmarks(main);
   if (activeModule === "images") return window.UraImageTools.render(main);
+  if (activeModule === "tasks") return window.UraTasks.render(main, { state, persist, notify, render });
   main.append(...heading("定型文をコピー", "使いたい文章を押すだけでコピーできます。"));
   const search = el("input", {
     type: "search", class: "search", value: queryText,
@@ -1369,7 +1375,7 @@ function renderSettings(main) {
     main.append(devBox);
   }
   const version = el("button", {
-    type: "button", class: "version", "aria-label": "バージョン 0.4.0",
+    type: "button", class: "version", "aria-label": "バージョン 0.6.0",
     onClick: () => {
       if (state.developerEnabled) return;
       const now = Date.now();
@@ -1384,7 +1390,7 @@ function renderSettings(main) {
         if (hint) hint.textContent = "あと" + (5 - versionTapCount) + "回で開発者モード";
       }
     }
-  }, "うらちゃんツール v0.5.0");
+  }, "うらちゃんツール v0.6.0");
   main.append(version, el("div", { id: "developer-hint", class: "dev-hint" }));
   main.append(helpPopup("データはこのPCのChromeプロファイルに保存されます。共用PCでは他の利用者から見える可能性があります。"));
 }
@@ -1525,7 +1531,7 @@ function renderBackupManager(main) {
   const backup = el("section", { class: "card" }, [
     el("div", { class: "card-heading" }, [
       text("h2", "バックアップ"),
-      helpPopup("個人用定型文、お気に入り、あとで見るのURL・タイトル・タグ・保存ボタン、機能の表示設定、組織共通セットの有効・無効を一括保存します。組織共通の本文は含みません。")
+      helpPopup("個人用定型文、お気に入り、あとで見る、メモ・タスク（対応履歴と回答）、機能の表示設定、組織共通セットの有効・無効を一括保存します。組織共通の本文は含みません。")
     ])
   ]);
   backup.append(btn("バックアップを保存", "button-primary full", () => {
@@ -1535,7 +1541,7 @@ function renderBackupManager(main) {
   const restore = el("section", { class: "card" }, [
     el("div", { class: "card-heading" }, [
       text("h2", "バックアップから復元"),
-      helpPopup("復元すると、現在の個人用定型文・お気に入り・表示設定を置き換えます。v0.3.0以降のバックアップにはブックマークも含み、同時に置き換えます。旧バックアップにブックマーク情報がない場合は現在のものを維持します。組織共通本文は変更しません。")
+      helpPopup("復元すると、現在の個人用定型文・お気に入り・表示設定を置き換えます。バックアップにブックマークやメモ・タスクが含まれていればそれらも置き換えます。含まれていない旧バックアップの場合は現在のデータを維持します。組織共通本文は変更しません。")
     ])
   ]);
   restore.append(attachJsonInput(async (data) => {
@@ -1550,6 +1556,7 @@ function renderBackupManager(main) {
       state.bookmarkPresets = imported.bookmarks.presets;
       state.bookmarkTags = imported.bookmarks.tags;
     }
+    if (imported.tasks) state.tasks = imported.tasks;
     if (!state.visibleModules.includes(activeModule)) activeModule = state.visibleModules[0];
     await persist();
     render();
@@ -1754,6 +1761,13 @@ async function start() {
       } catch (error) {
         console.error("ブックマークを読み込めませんでした", error);
         notify("ブックマークの読み込みに失敗しました。バックアップをご確認ください。");
+      }
+      try {
+        state.tasks = stored.tasks === undefined
+          ? window.UraTasks.emptyData() : window.UraTasks.validate(stored.tasks);
+      } catch (error) {
+        console.error("メモ・タスクを読み込めませんでした", error);
+        notify("メモ・タスクの読み込みに失敗しました。バックアップをご確認ください。");
       }
       if (!state.visibleModules.length) state.visibleModules = ["templates"];
     }
