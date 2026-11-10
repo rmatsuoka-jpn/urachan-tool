@@ -12,17 +12,37 @@ const TAB_NAMES = [
   ["personal", "個人"],
   ["shared", "組織共通"]
 ];
+const FEATURES = [
+  { id: "templates", name: "定型文", description: "登録した文章をワンクリックコピー" },
+  { id: "dates", name: "日付ツール", description: "西暦・和暦変換と日付計算" }
+];
+const ERAS = [
+  { name: "令和", start: 2019, end: null },
+  { name: "平成", start: 1989, end: 2019 },
+  { name: "昭和", start: 1926, end: 1989 },
+  { name: "大正", start: 1912, end: 1926 },
+  { name: "明治", start: 1868, end: 1912 }
+];
 const DEFAULT_STATE = {
-  version: 1,
-  displayMode: "simple",
+  version: 2,
   developerEnabled: false,
+  visibleModules: ["templates"],
   personal: [],
   sharedSets: [],
+  sharedPreferences: [],
   favoriteKeys: []
 };
 
 let state = structuredClone(DEFAULT_STATE);
 let view = "home";
+let activeModule = "templates";
+let selectedSharedSetId = null;
+let conversionDirection = "western";
+let westernInputYear = String(new Date().getFullYear());
+let japaneseInputEra = "令和";
+let japaneseInputYear = "8";
+let calculationDate = localIsoDate(new Date());
+let calculationOffset = "30";
 let currentTab = "all";
 let queryText = "";
 let personalEditing = null;
@@ -189,9 +209,24 @@ function attachJsonInput(handler) {
 function favKey(entry) {
   return entry.source === "personal" ? "p:" + entry.id : "s:" + entry.setId + ":" + entry.id;
 }
+function isSharedEnabled(setId) {
+  const pref = (state.sharedPreferences || []).find((p) => p.id === setId);
+  return !pref || pref.enabled !== false;
+}
+function setSharedEnabled(setId, enabled) {
+  state.sharedPreferences = (state.sharedPreferences || []).filter((p) => p.id !== setId);
+  state.sharedPreferences.push({ id: setId, enabled: Boolean(enabled) });
+  persist();
+}
+function removeSharedSet(id) {
+  state.sharedSets = state.sharedSets.filter((s) => s.id !== id);
+  state.sharedPreferences = (state.sharedPreferences || []).filter((p) => p.id !== id);
+  state.favoriteKeys = state.favoriteKeys.filter((key) => !key.startsWith("s:" + id + ":"));
+  persist();
+}
 function entries() {
   const personal = state.personal.map((item) => ({ ...item, source: "personal" }));
-  const shared = state.sharedSets.flatMap((set) =>
+  const shared = state.sharedSets.filter((set) => isSharedEnabled(set.id)).flatMap((set) =>
     set.items.map((item) => ({ ...item, source: "shared", setId: set.id, setName: set.name }))
   );
   return [...personal, ...shared];
@@ -261,28 +296,33 @@ async function closeSidePanel() {
 function renderHeader() {
   const header = el("header", { class: "header" });
   const title = row(text("span", "▣", "brand-mark"), text("span", "うらちゃんツール", "brand"));
+  const backTarget = view === "settings" ? "home"
+    : view === "shared-details" ? "shared-manager"
+    : view === "personal-editor" ? "home" : "settings";
   const back = view === "home"
     ? btn("⚙ 設定", "settings-button", () => navigate("settings"))
-    : btn("← 戻る", "settings-button", () => navigate(view === "settings" ? "home" : "settings"));
+    : btn("← 戻る", "settings-button", () => navigate(backTarget));
   back.className = "settings-button";
   const close = el("button", {
-    type: "button",
-    class: "settings-button close-button",
-    title: "サイドパネルをとじる",
-    "aria-label": "サイドパネルをとじる",
+    type: "button", class: "settings-button close-button",
+    title: "サイドパネルをとじる", "aria-label": "サイドパネルをとじる",
     onClick: () => { void closeSidePanel(); }
   }, "× とじる");
-  const controls = el("div", { class: "header-actions" }, [back, close]);
-  header.append(el("div", { class: "topbar" }, [title, controls]));
-  if (state.displayMode === "advanced" && (view === "home" || view === "settings")) {
-    const nav = el("nav", { class: "mode-nav", "aria-label": "拡張モードのメニュー" });
-    const copy = btn("定型文", "", () => navigate("home"));
-    const setting = btn("データ管理", "", () => navigate("settings"));
-    const future = btn("便利ツール（準備中）", "coming", () => {});
-    future.disabled = true;
-    copy.className = view === "home" ? "active" : "";
-    setting.className = view === "settings" ? "active" : "";
-    nav.append(copy, setting, future);
+  header.append(el("div", { class: "topbar" }, [title,
+    el("div", { class: "header-actions" }, [back, close])]));
+  if (view === "home") {
+    const shown = FEATURES.filter((m) => state.visibleModules.includes(m.id));
+    const nav = el("nav", { class: "mode-nav feature-nav", "aria-label": "表示する機能" });
+    if (shown.length > 1) {
+      shown.forEach((module) => {
+        const button = btn(module.name, activeModule === module.id ? "active" : "", () => {
+          activeModule = module.id;
+          render();
+        });
+        nav.append(button);
+      });
+    }
+    nav.append(btn("＋ 機能", "feature-add", () => navigate("settings")));
     header.append(nav);
   }
   return header;
@@ -331,6 +371,8 @@ function renderList(container, count) {
   }
 }
 function renderHome(main) {
+  if (!state.visibleModules.includes(activeModule)) activeModule = state.visibleModules[0] || "templates";
+  if (activeModule === "dates") return renderDateTools(main);
   main.append(...heading("定型文をコピー", "使いたい文章を押すだけでコピーできます。"));
   const search = el("input", {
     type: "search", class: "search", value: queryText,
@@ -356,6 +398,139 @@ function renderHome(main) {
   renderList(list, count);
   main.append(el("div", { class: "footer-action" }, btn("＋ 新しく登録", "button-primary full", () => openPersonalEditor())));
 }
+
+function localIsoDate(date) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")].join("-");
+}
+function yearToJapanese(value) {
+  const year = Number(value);
+  if (!/^\\d{1,4}$/.test(String(value)) || !Number.isInteger(year) || year < 1) return "—";
+  const matches = ERAS.filter((e) => year >= e.start && (e.end === null || year <= e.end));
+  return matches.length
+    ? matches.map((e) => e.name + (year === e.start ? "元" : String(year - e.start + 1)) + "年").join(" / ")
+    : "対象外";
+}
+function japaneseToYear(eraName, yearText) {
+  const selected = ERAS.find((e) => e.name === eraName);
+  const n = Number(yearText);
+  if (!selected || !/^\\d{1,3}$/.test(String(yearText)) || !Number.isInteger(n) || n < 1) return "—";
+  const result = selected.start + n - 1;
+  if (selected.end !== null && result > selected.end) return "対象外";
+  return result + "年";
+}
+function parseDateInput(value) {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const result = new Date(0);
+  result.setUTCHours(0, 0, 0, 0);
+  result.setUTCFullYear(year, month - 1, day);
+  if (result.getUTCFullYear() !== year || result.getUTCMonth() !== month - 1 ||
+    result.getUTCDate() !== day) return null;
+  return result;
+}
+function calculateDate(base, offset) {
+  const date = parseDateInput(base);
+  if (!date || !/^-?\\d{1,6}$/.test(String(offset)) || Math.abs(Number(offset)) > 365000) return null;
+  date.setUTCDate(date.getUTCDate() + Number(offset));
+  if (date.getUTCFullYear() < 1 || date.getUTCFullYear() > 9999) return null;
+  return { date: date.getUTCFullYear() + "/" + String(date.getUTCMonth() + 1).padStart(2, "0") +
+    "/" + String(date.getUTCDate()).padStart(2, "0"),
+    weekday: ["日", "月", "火", "水", "木", "金", "土"][date.getUTCDay()] };
+}
+function renderDateTools(main) {
+  main.append(...heading("日付ツール"));
+  const today = new Date();
+  const todayIso = localIsoDate(today);
+  const [y, m, d] = todayIso.split("-");
+  const todayCard = el("section", { class: "card date-card" }, [text("h2", "今日の日付をコピー")]);
+  const formats = [
+    y + "/" + m + "/" + d,
+    Number(y) + "年" + Number(m) + "月" + Number(d) + "日",
+    yearToJapanese(y) + Number(m) + "月" + Number(d) + "日"
+  ];
+  // 元号が切り替わる年の「今日」は月日で元号を確定する。
+  const todayEra = ERAS.find((e) => {
+    const begin = e.name === "令和" ? "2019-05-01" : e.name === "平成" ? "1989-01-08"
+      : e.name === "昭和" ? "1926-12-25" : e.name === "大正" ? "1912-07-30" : "1868-01-25";
+    const ending = e.name === "平成" ? "2019-04-30" : e.name === "昭和" ? "1989-01-07"
+      : e.name === "大正" ? "1926-12-24" : e.name === "明治" ? "1912-07-29" : null;
+    return todayIso >= begin && (!ending || todayIso <= ending);
+  });
+  formats[2] = todayEra ? todayEra.name + (Number(y) === todayEra.start ? "元" :
+    Number(y) - todayEra.start + 1) + "年" + Number(m) + "月" + Number(d) + "日" : "対応する元号なし";
+  formats.forEach((value) => {
+    todayCard.append(el("div", { class: "date-copy-row" }, [
+      text("span", value),
+      btn("コピー", "button-secondary", () => copyText(value))
+    ]));
+  });
+  main.append(todayCard);
+
+  const converter = el("section", { class: "card date-card" }, [text("h2", "西暦・和暦変換")]);
+  const switcher = el("div", { class: "date-direction" });
+  [["western", "西暦 → 和暦"], ["japanese", "和暦 → 西暦"]].forEach(([key, title]) => {
+    switcher.append(btn(title, conversionDirection === key ? "active" : "", () => {
+      conversionDirection = key;
+      render();
+    }));
+  });
+  converter.append(switcher);
+  const conversionRow = el("div", { class: "date-converter-row" });
+  const inputGroup = el("div", { class: "date-input-group" });
+  let refresh = () => {};
+  if (conversionDirection === "western") {
+    inputGroup.append(el("input", {
+      type: "number", min: "1", max: "9999", value: westernInputYear,
+      "aria-label": "西暦年", placeholder: "西暦年",
+      onInput: (ev) => { westernInputYear = ev.target.value; refresh(); }
+    }));
+  } else {
+    const select = el("select", { "aria-label": "元号", value: japaneseInputEra });
+    ERAS.forEach((e) => select.append(el("option", { value: e.name, text: e.name })));
+    select.addEventListener("change", () => {
+      japaneseInputEra = select.value; refresh();
+    });
+    inputGroup.append(select, el("input", {
+      type: "number", min: "1", max: "999", value: japaneseInputYear,
+      "aria-label": "和暦年", placeholder: "年",
+      onInput: (ev) => { japaneseInputYear = ev.target.value; refresh(); }
+    }));
+  }
+  const result = text("div", "", "date-conversion-result");
+  result.setAttribute("role", "status");
+  refresh = () => {
+    result.textContent = conversionDirection === "western"
+      ? yearToJapanese(westernInputYear) : japaneseToYear(japaneseInputEra, japaneseInputYear);
+  };
+  refresh();
+  conversionRow.append(inputGroup, text("span", "→", "date-arrow"), result);
+  converter.append(conversionRow);
+  main.append(converter);
+
+  const calculator = el("section", { class: "card date-card" }, [text("h2", "日付の加算・減算")]);
+  const calculateRow = el("div", { class: "date-calculation-controls" });
+  const date = el("input", {
+    type: "date", value: calculationDate, "aria-label": "基準日",
+    onInput: (ev) => { calculationDate = ev.target.value; updateCalculation(); }
+  });
+  const days = el("input", {
+    type: "number", min: "-365000", max: "365000", value: calculationOffset,
+    "aria-label": "加算・減算する日数", placeholder: "日数",
+    onInput: (ev) => { calculationOffset = ev.target.value; updateCalculation(); }
+  });
+  calculateRow.append(date, days, text("span", "日後", "date-unit"));
+  const calculationResult = text("div", "", "date-calculation-result");
+  function updateCalculation() {
+    const value = calculateDate(calculationDate, calculationOffset);
+    calculationResult.textContent = value ? value.date + "（" + value.weekday + "）" : "日付と日数を確認してください";
+  }
+  updateCalculation();
+  calculator.append(calculateRow, calculationResult,
+    text("p", "負の数を入力すると指定日前の日付を表示します。曜日も表示します。", "help"));
+  main.append(calculator);
+}
+
 function openPersonalEditor(entry) {
   personalEditing = entry && entry.source === "personal" ? entry.id : null;
   personalDraft = entry
