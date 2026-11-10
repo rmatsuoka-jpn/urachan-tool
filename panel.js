@@ -1367,7 +1367,7 @@ function renderSettings(main) {
     main.append(devBox);
   }
   const version = el("button", {
-    type: "button", class: "version", "aria-label": "バージョン 0.3.0",
+    type: "button", class: "version", "aria-label": "バージョン 0.4.0",
     onClick: () => {
       if (state.developerEnabled) return;
       const now = Date.now();
@@ -1382,7 +1382,7 @@ function renderSettings(main) {
         if (hint) hint.textContent = "あと" + (5 - versionTapCount) + "回で開発者モード";
       }
     }
-  }, "うらちゃんツール v0.3.0");
+  }, "うらちゃんツール v0.4.0");
   main.append(version, el("div", { id: "developer-hint", class: "dev-hint" }));
   main.append(helpPopup("データはこのPCのChromeプロファイルに保存されます。共用PCでは他の利用者から見える可能性があります。"));
 }
