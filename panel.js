@@ -530,8 +530,9 @@ function renderDateTools(main) {
       onInput: (ev) => { westernInputYear = ev.target.value; refresh(); }
     }));
   } else {
-    const select = el("select", { "aria-label": "元号", value: japaneseInputEra });
+    const select = el("select", { "aria-label": "元号" });
     ERAS.forEach((e) => select.append(el("option", { value: e.name, text: e.name })));
+    select.value = japaneseInputEra;
     select.addEventListener("change", () => {
       japaneseInputEra = select.value; refresh();
     });
