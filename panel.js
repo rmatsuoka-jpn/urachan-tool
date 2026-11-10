@@ -3,6 +3,10 @@
 const STORAGE_KEY = "urachanAppStateV2";
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_ITEMS = 500;
+const MAX_BOOKMARKS = 1500;
+const MAX_PRESETS = 30;
+const MAX_TAGS = 120;
+const MAX_TAG_LENGTH = 32;
 const MAX_TITLE = 80;
 const MAX_TEXT = 10000;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
@@ -14,7 +18,8 @@ const TAB_NAMES = [
 ];
 const FEATURES = [
   { id: "templates", name: "定型文", description: "登録した文章をワンクリックコピー" },
-  { id: "dates", name: "日付ツール", description: "西暦・和暦変換と日付計算" }
+  { id: "dates", name: "日付ツール", description: "西暦・和暦変換と日付計算" },
+  { id: "bookmarks", name: "あとで見る", description: "現在のページを保存し、タグで整理" }
 ];
 const ERAS = [
   { name: "令和", start: 2019, end: null },
@@ -23,6 +28,11 @@ const ERAS = [
   { name: "大正", start: 1912, end: 1926 },
   { name: "明治", start: 1868, end: 1912 }
 ];
+const DEFAULT_BOOKMARK_PRESETS = [
+  { id: "mail", label: "メール", tags: ["メール"] },
+  { id: "web", label: "Web", tags: ["Web"] }
+];
+const DEFAULT_BOOKMARK_TAGS = ["メール", "Web"];
 const DEFAULT_STATE = {
   version: 2,
   developerEnabled: false,
@@ -30,7 +40,10 @@ const DEFAULT_STATE = {
   personal: [],
   sharedSets: [],
   sharedPreferences: [],
-  favoriteKeys: []
+  favoriteKeys: [],
+  bookmarks: [],
+  bookmarkPresets: structuredClone(DEFAULT_BOOKMARK_PRESETS),
+  bookmarkTags: [...DEFAULT_BOOKMARK_TAGS]
 };
 
 let state = structuredClone(DEFAULT_STATE);
@@ -45,6 +58,13 @@ let japaneseInputEra = "令和";
 let japaneseInputYear = "8";
 let calculationDate = localIsoDate(new Date());
 let calculationOffset = "30";
+let bookmarkQuery = "";
+let bookmarkTagFilter = "all";
+let editingBookmarkId = null;
+let bookmarkTitleDraft = "";
+let bookmarkNewTagDraft = "";
+let bookmarkPresetDraft = null;
+let bookmarkPresetNewTagDraft = "";
 let currentTab = "all";
 let queryText = "";
 let personalEditing = null;
@@ -173,6 +193,153 @@ function validatePersonal(data) {
   }
   return { personal, favoriteKeys: [...new Set(data.favoriteKeys)] };
 }
+
+function normalizeBookmarkUrl(value) {
+  if (typeof value !== "string" || value.length > 4096) throw Error("URLが長すぎるか、正しくありません。");
+  let parsed;
+  try { parsed = new URL(value); } catch { throw Error("有効なURLを取得できませんでした。"); }
+  if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname
+    || parsed.username || parsed.password) {
+    throw Error("http・httpsの通常のWebページだけを保存できます。");
+  }
+  return parsed.href;
+}
+function validTag(tag) {
+  return typeof tag === "string" && tag.trim() === tag
+    && tag.length > 0 && tag.length <= MAX_TAG_LENGTH
+    && !/[\\x00-\\x1f\\x7f]/.test(tag);
+}
+function validateBookmarkData(data) {
+  if (!data || !Array.isArray(data.items) || !Array.isArray(data.presets)
+    || !Array.isArray(data.tags) || data.items.length > MAX_BOOKMARKS
+    || data.presets.length > MAX_PRESETS || data.tags.length > MAX_TAGS) {
+    throw Error("ブックマークの件数または形式が正しくありません。");
+  }
+  if (data.tags.some((tag) => !validTag(tag)) || new Set(data.tags).size !== data.tags.length) {
+    throw Error("タグの一覧が正しくありません。");
+  }
+  const usedIds = new Set(), usedUrls = new Set(), usedPresetIds = new Set();
+  const items = data.items.map((item) => {
+    if (!item || typeof item.id !== "string" || !ID_PATTERN.test(item.id)
+      || usedIds.has(item.id)
+      || typeof item.title !== "string" || !item.title.trim() || item.title.length > 200
+      || !Array.isArray(item.tags) || item.tags.length > MAX_TAGS
+      || item.tags.some((tag) => !validTag(tag))
+      || new Set(item.tags).size !== item.tags.length
+      || typeof item.savedAt !== "string" || !Number.isFinite(Date.parse(item.savedAt))) {
+      throw Error("ブックマークの登録内容が正しくありません。");
+    }
+    const url = normalizeBookmarkUrl(item.url);
+    if (usedUrls.has(url)) throw Error("重複したURLが含まれています。");
+    usedIds.add(item.id); usedUrls.add(url);
+    return { id: item.id, title: item.title, url, tags: [...item.tags], savedAt: item.savedAt };
+  });
+  const presets = data.presets.map((preset) => {
+    if (!preset || typeof preset.id !== "string" || !ID_PATTERN.test(preset.id)
+      || usedPresetIds.has(preset.id)
+      || typeof preset.label !== "string" || !preset.label.trim() || preset.label.length > 24
+      || !Array.isArray(preset.tags) || preset.tags.length === 0 || preset.tags.length > 10
+      || preset.tags.some((tag) => !validTag(tag))
+      || new Set(preset.tags).size !== preset.tags.length) {
+      throw Error("保存ボタンの設定が正しくありません。");
+    }
+    usedPresetIds.add(preset.id);
+    return { id: preset.id, label: preset.label.trim(), tags: [...preset.tags] };
+  });
+  return { items, presets, tags: [...data.tags] };
+}
+function bookmarkDataSnapshot() {
+  return {
+    items: state.bookmarks,
+    presets: state.bookmarkPresets,
+    tags: state.bookmarkTags
+  };
+}
+function storeBookmark(url, title, presetTags) {
+  const normalizedUrl = normalizeBookmarkUrl(url);
+  if (typeof title !== "string") throw Error("ページタイトルを取得できませんでした。");
+  const cleanTitle = title.trim().slice(0, 200) || normalizedUrl.slice(0, 200);
+  if (!Array.isArray(presetTags) || !presetTags.length || presetTags.some((tag) => !validTag(tag))) {
+    throw Error("保存ボタンのタグ設定が正しくありません。");
+  }
+  const existing = state.bookmarks.find((item) => item.url === normalizedUrl);
+  if (existing) {
+    const oldCount = existing.tags.length;
+    existing.tags = [...new Set([...existing.tags, ...presetTags])];
+    persist();
+    return { added: false, newTags: existing.tags.length - oldCount };
+  }
+  if (state.bookmarks.length >= MAX_BOOKMARKS) throw Error("保存件数の上限に達しました。");
+  state.bookmarks.unshift({
+    id: uniqueId(), url: normalizedUrl, title: cleanTitle, tags: [...new Set(presetTags)],
+    savedAt: new Date().toISOString()
+  });
+  persist();
+  return { added: true, newTags: presetTags.length };
+}
+function toggleBookmarkTag(bookmarkId, tag) {
+  if (!validTag(tag)) throw Error("タグ名を確認してください。");
+  const item = state.bookmarks.find((entry) => entry.id === bookmarkId);
+  if (!item) throw Error("対象のブックマークが見つかりません。");
+  if (item.tags.includes(tag)) item.tags = item.tags.filter((name) => name !== tag);
+  else item.tags.push(tag);
+  if (!state.bookmarkTags.includes(tag)) state.bookmarkTags.push(tag);
+  persist();
+}
+function addBookmarkTagDefinition(tag) {
+  const value = tag.trim();
+  if (!validTag(value)) throw Error("タグ名は1〜32文字で入力してください。");
+  if (!state.bookmarkTags.includes(value)) {
+    if (state.bookmarkTags.length >= MAX_TAGS) throw Error("タグをこれ以上登録できません。");
+    state.bookmarkTags.push(value);
+    persist();
+  }
+  return value;
+}
+function allBookmarkTags() {
+  return [...new Set([...state.bookmarkTags,
+    ...state.bookmarks.flatMap((item) => item.tags),
+    ...state.bookmarkPresets.flatMap((preset) => preset.tags)])];
+}
+function visibleBookmarks() {
+  const needle = bookmarkQuery.trim().toLocaleLowerCase();
+  return [...state.bookmarks]
+    .filter((item) => {
+      if (bookmarkTagFilter === "untagged" && item.tags.length !== 0) return false;
+      if (bookmarkTagFilter.startsWith("tag:") &&
+        !item.tags.includes(bookmarkTagFilter.slice(4))) return false;
+      return [item.title, item.url, ...item.tags].join(" ").toLocaleLowerCase().includes(needle);
+    })
+    .sort((a,b) => b.savedAt.localeCompare(a.savedAt));
+}
+async function getActivePage() {
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const tab = tabs && tabs[0];
+  if (!tab || typeof tab.url !== "string") throw Error("現在のページを取得できませんでした。");
+  const url = normalizeBookmarkUrl(tab.url);
+  return { url, title: (tab.title || url).trim().slice(0, 200) };
+}
+async function saveCurrentBookmark(presetId) {
+  const preset = state.bookmarkPresets.find((item) => item.id === presetId);
+  if (!preset) return notify("保存ボタンが見つかりません。");
+  try {
+    const page = await getActivePage();
+    const result = storeBookmark(page.url, page.title, preset.tags);
+    render();
+    notify(result.added ? "ページを保存しました。" :
+      result.newTags ? "保存済みページにタグを追加しました。" : "すでに保存されています。");
+  } catch (error) {
+    notify(error.message || "ページを保存できませんでした。");
+  }
+}
+async function openSavedBookmark(url) {
+  try {
+    await chrome.tabs.create({ url: normalizeBookmarkUrl(url), active: true });
+  } catch {
+    notify("ページを開けませんでした。ブラウザの設定を確認してください。");
+  }
+}
+
 function validateBackup(data) {
   if (!data || data.format !== "urachan-backup" || data.version !== 2 || !data.modules) {
     throw Error("このファイルは対応しているバックアップではありません。");
@@ -197,10 +364,13 @@ function validateBackup(data) {
     new Set(preferences.map((pref) => pref.id)).size !== preferences.length) {
     throw Error("組織共通データの表示設定が正しくありません。");
   }
+  const bookmarks = data.modules.bookmarks === undefined
+    ? null : validateBookmarkData(data.modules.bookmarks);
   return {
     personal: validated.personal, favoriteKeys: validated.favoriteKeys,
     visibleModules: [...settings.visibleModules],
-    sharedPreferences: preferences.map((pref) => ({ id: pref.id, enabled: pref.enabled }))
+    sharedPreferences: preferences.map((pref) => ({ id: pref.id, enabled: pref.enabled })),
+    bookmarks
   };
 }
 function createBackup() {
@@ -210,7 +380,8 @@ function createBackup() {
     modules: {
       templates: { personal: state.personal, favoriteKeys: state.favoriteKeys },
       sharedPreferences: state.sharedPreferences,
-      settings: { visibleModules: state.visibleModules }
+      settings: { visibleModules: state.visibleModules },
+      bookmarks: bookmarkDataSnapshot()
     }
   };
 }
