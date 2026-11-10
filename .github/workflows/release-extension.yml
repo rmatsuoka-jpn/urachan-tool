@@ -1,0 +1,95 @@
+name: Package Chrome extension and publish Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - manifest.json
+      - background.js
+      - panel.html
+      - panel.css
+      - panel.js
+      - tests/**
+      - .github/workflows/release-extension.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-release:
+    name: Validate, package and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate source and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check background.js
+          node --check panel.js
+          node --test tests/panel.test.mjs
+          node -e 'const m=require("./manifest.json"); if(m.manifest_version!==3 || m.side_panel?.default_path!=="panel.html") process.exit(1)'
+
+      - name: Determine version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./manifest.json").version')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::manifest.json version must be x.y.z"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Create deployment-only ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          zip -j -9 "dist/urachan-tool-v${VERSION}.zip" \
+            manifest.json background.js panel.html panel.css panel.js
+
+          # Fail if the archive contains even one unexpected file.
+          diff -u \
+            <(printf '%s\n' manifest.json background.js panel.html panel.css panel.js | sort) \
+            <(unzip -Z1 "dist/urachan-tool-v${VERSION}.zip" | sort)
+
+          unzip -t "dist/urachan-tool-v${VERSION}.zip"
+          sha256sum "dist/urachan-tool-v${VERSION}.zip" > "dist/urachan-tool-v${VERSION}.zip.sha256"
+
+      - name: Keep ZIP as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: urachan-tool-v${{ env.VERSION }}
+          path: |
+            dist/urachan-tool-v${{ env.VERSION }}.zip
+            dist/urachan-tool-v${{ env.VERSION }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish versioned GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+
+          # Publishing the same version twice risks sending a stale ZIP.
+          # A new distribution requires a version bump in manifest.json.
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; leaving it unchanged."
+            exit 0
+          fi
+
+          gh release create "$tag" \
+            "dist/urachan-tool-${tag}.zip" \
+            "dist/urachan-tool-${tag}.zip.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "うらちゃんツール ${tag}（デモ版）" \
+            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。動作に必要な5ファイルだけを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
