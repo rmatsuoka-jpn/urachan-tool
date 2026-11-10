@@ -384,3 +384,76 @@ main { padding: 16px 14px 30px; }
 .image-convert-action { margin-top: 14px; }
 .image-status { font-size: 12px; color: #566f7d; overflow-wrap: anywhere; margin: 8px 0; min-height: 20px; }
 .image-setting-field[hidden] { display: none; }
+
+
+/* v0.6.0: memo tasks / inquiry history. Scoped to avoid affecting other modules. */
+.ticket-panel {
+  background: #fff; border: 1px solid #dce6ed; border-radius: 12px;
+  padding: 12px; margin: 10px 0; display: flex; flex-direction: column; gap: 10px;
+}
+.ticket-quick { background: #f0f7fa; }
+.ticket-input {
+  width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid #cbdce5;
+  background: #fff; color: #233441; border-radius: 9px; font-size: 13px;
+}
+textarea.ticket-input { resize: vertical; white-space: pre-wrap; min-height: 65px; }
+.ticket-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ticket-line > .ticket-button { flex: 1 1 0; min-width: 0; }
+.ticket-line > input[type="checkbox"] { width: 19px; height: 19px; flex: 0 0 auto; cursor: pointer; accent-color: #08758e; }
+.ticket-line > .ticket-title { flex: 1 1 auto; }
+.ticket-line > .ticket-star { flex: 0 0 auto; }
+.ticket-button {
+  font-size: 12px; line-height: 1.4; padding: 8px 10px;
+  min-height: 34px; border-radius: 9px; font-weight: 700;
+  border: 1px solid transparent; background: transparent; color: #31596c;
+}
+.ticket-button:hover { background: #e7f3f7; }
+.ticket-main { background: #08718b; color: #fff; }
+.ticket-main:hover { background: #065e74; }
+.ticket-secondary { background: #fff; color: #1e657d; border-color: #c6dbe4; }
+.ticket-secondary:hover { background: #eef7fa; }
+.ticket-link { color: #2c7188; }
+.ticket-full { width: 100%; margin-top: 7px; }
+.ticket-count, .ticket-muted { color: #687d89; font-size: 12px; margin: 9px 0; }
+.ticket-count { font-weight: 700; }
+.ticket-filters { display: flex; flex-direction: column; gap: 7px; margin: 10px 0 12px; }
+.ticket-filters .ticket-line > select { flex: 1 1 0; width: 50%; }
+.ticket-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; }
+.ticket-item { background: #fff; border: 1px solid #dce6ed; border-radius: 12px; padding: 11px; }
+.ticket-item .ticket-line:last-child { justify-content: flex-end; margin-top: 6px; }
+.ticket-item .ticket-line:last-child .ticket-button { flex: 0 1 auto; }
+.ticket-title {
+  text-align: left; overflow-wrap: anywhere; white-space: normal; font-size: 13px;
+  color: #233441; font-weight: 750; border: 0; padding: 6px 1px;
+}
+.ticket-title:hover { background: #eef6f9; text-decoration: underline; }
+.ticket-completed { color: #788b93; text-decoration: line-through; }
+.ticket-star { font-size: 21px; padding: 3px 7px; color: #9aa5aa; }
+.ticket-star-on { color: #b88300; }
+.ticket-meta { display: flex; gap: 5px 8px; flex-wrap: wrap; align-items: center; font-size: 11px; color: #607482; margin: 5px 0; }
+.ticket-answer { border-radius: 6px; padding: 2px 6px; }
+.ticket-answered { background: #e5f3e7; color: #266f40; }
+.ticket-unanswered { background: #edf1f3; color: #647783; }
+.ticket-due { color: #526b7a; }
+.ticket-overdue { color: #ac2c32; font-weight: 800; }
+.ticket-today { color: #9c6100; font-weight: 800; }
+.ticket-empty { text-align: center; border: 1px dashed #cbdbe3; background: #fff; border-radius: 12px; padding: 16px; }
+.ticket-empty strong { display: block; font-size: 13px; }
+.ticket-empty p { color: #667984; font-size: 12px; }
+.ticket-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 700; }
+.ticket-field .ticket-input { font-weight: 400; }
+.ticket-field input[type="date"] { min-height: 38px; }
+.ticket-heading { font-size: 14px; margin: 18px 0 10px; }
+.ticket-history { display: flex; flex-direction: column; gap: 7px; }
+.ticket-history-entry {
+  border-left: 3px solid #a6cfdd; padding: 7px 10px;
+  background: #f6fafc; border-radius: 0 8px 8px 0;
+}
+.ticket-history-entry time { display: block; font-size: 11px; color: #657b86; }
+.ticket-history-entry p { font-size: 13px; margin: 4px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ticket-state { margin-left: auto; font-size: 11px; color: #597182; border: 1px solid #c9d9e2; border-radius: 6px; padding: 3px 5px; }
+.ticket-knowledge-on { background: #fff7dd; border-color: #e5c66d; color: #926700; }
+.ticket-danger { display: block; color: #a64a4b; margin-top: 20px; margin-left: auto; }
+.ticket-check-label { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 4px 0; }
+.ticket-check-label input { accent-color: #08718b; width: 17px; height: 17px; }
+.ticket-warning { color: #785c25; background: #fff5e4; border-radius: 10px; padding: 11px; font-size: 12px; }
