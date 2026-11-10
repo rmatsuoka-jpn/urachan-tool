@@ -207,7 +207,7 @@ function normalizeBookmarkUrl(value) {
 function validTag(tag) {
   return typeof tag === "string" && tag.trim() === tag
     && tag.length > 0 && tag.length <= MAX_TAG_LENGTH
-    && !/[\\x00-\\x1f\\x7f]/.test(tag);
+    && !/[\x00-\x1f\x7f]/.test(tag);
 }
 function validateBookmarkData(data) {
   if (!data || !Array.isArray(data.items) || !Array.isArray(data.presets)
