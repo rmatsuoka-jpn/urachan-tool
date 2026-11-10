@@ -2,7 +2,12 @@
 
 自治体などの閉域イントラネットでも使える、外部通信なしのChromeサイドパネル型業務ツールです。既存システムの改修、サーバー、CDN、ビルド環境を必要としません。
 
-**最新：v0.2.0（実機検証前のデモ版）**。v0.1.1の職場PC更新は確認済みです。
+**最新：v0.2.1（キャラクターアイコン対応、実機検証前のデモ版）**。v0.1.1の職場PC更新は確認済みです。
+
+## v0.2.1 の変更点
+
+- 提供されたキャラクターをChrome拡張のアイコン（16・32・48・128px）とサイドパネル左上のロゴに設定
+- 配布用ZIPには画像4ファイルを追加。機能や保存データの形式はv0.2.0から変更なし
 
 ## 主な機能
 
@@ -22,14 +27,14 @@
 
 ## 配布と導入
 
-配布用ZIPは [GitHub Releases](https://github.com/rmatsuoka-jpn/urachan-tool/releases) から `urachan-tool-v0.2.0.zip` を取得します。GitHubの「Source code (zip)」ではありません。
+配布用ZIPは [GitHub Releases](https://github.com/rmatsuoka-jpn/urachan-tool/releases) から `urachan-tool-v0.2.1.zip` を取得します。GitHubの「Source code (zip)」ではありません。
 
 1. ZIPを解凍し、`manifest.json` のあるフォルダを用意します
 2. Chromeで `chrome://extensions` を開き、デベロッパーモードをONにします
 3. 新規導入時は「パッケージ化されていない拡張機能を読み込む」でフォルダを選びます。更新時は既存フォルダを上書きして「再読み込み」します
 4. ツールバーの拡張機能ボタンからサイドパネルを開きます
 
-配布ZIPは `manifest.json`、`background.js`、`panel.html`、`panel.css`、`panel.js` の5ファイルのみで、設計書やJSONデータは含みません。
+配布ZIPはソース5ファイル（`manifest.json`、`background.js`、`panel.html`、`panel.css`、`panel.js`）とキャラクターアイコン4ファイル（`icon16.png`、`icon32.png`、`icon48.png`、`icon128.png`）の計9ファイルで、設計書やJSONデータは含みません。
 
 Chrome 116以降を対象としています。職場PCの拡張機能インストール・データ持出しに関する規則を守ってください。閉域環境では外部のサービスにアクセスしません。
 

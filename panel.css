@@ -205,3 +205,7 @@ main { padding: 16px 14px 30px; }
   .date-input-group select { width: 63%; font-size: 11px; }
   .date-conversion-result { font-size: 12px; padding: 8px 5px; }
 }
+
+/* v0.2.1: user-provided mascot in the side-panel header */
+.brand-icon { width: 27px; height: 27px; object-fit: contain; flex: 0 0 27px; border-radius: 5px; }
+@media (max-width: 340px) { .brand-icon { width: 23px; height: 23px; flex-basis: 23px; } }

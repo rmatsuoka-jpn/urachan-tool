@@ -339,7 +339,7 @@ async function closeSidePanel() {
 
 function renderHeader() {
   const header = el("header", { class: "header" });
-  const title = row(text("span", "▣", "brand-mark"), text("span", "うらちゃんツール", "brand"));
+  const title = row(el("img", { class: "brand-icon", src: "icon32.png", alt: "" }), text("span", "うらちゃんツール", "brand"));
   const backTarget = view === "settings" ? "home"
     : view === "shared-details" ? "shared-manager"
     : view === "personal-editor" ? "home" : "settings";
@@ -672,7 +672,7 @@ function renderSettings(main) {
     main.append(devBox);
   }
   const version = el("button", {
-    type: "button", class: "version", "aria-label": "バージョン 0.2.0",
+    type: "button", class: "version", "aria-label": "バージョン 0.2.1",
     onClick: () => {
       if (state.developerEnabled) return;
       const now = Date.now();
@@ -687,7 +687,7 @@ function renderSettings(main) {
         if (hint) hint.textContent = "あと" + (5 - versionTapCount) + "回で開発者モード";
       }
     }
-  }, "うらちゃんツール v0.2.0");
+  }, "うらちゃんツール v0.2.1");
   main.append(version, el("div", { id: "developer-hint", class: "dev-hint" }));
   main.append(helpPopup("データはこのPCのChromeプロファイルに保存されます。共用PCでは他の利用者から見える可能性があります。"));
 }

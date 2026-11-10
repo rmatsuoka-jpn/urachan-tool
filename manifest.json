@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "うらちゃんツール",
   "short_name": "うらちゃん",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "閉域環境で使える、定型文コピーと日付変換などの業務支援サイドパネル。",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -13,9 +13,21 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "うらちゃんツールを開く"
+    "default_title": "うらちゃんツールを開く",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   },
   "side_panel": {
     "default_path": "panel.html"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   }
 }

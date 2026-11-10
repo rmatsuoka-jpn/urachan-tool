@@ -164,3 +164,19 @@ test("表示機能選択制かつ重複のデータ管理タブを廃止", () =>
   assert.match(source, /function renderSharedManager/);
   assert.doesNotMatch(source, /btn\("データ管理"/);
 });
+
+
+test("配布アイコンのサイズ・拡張設定・ヘッダーロゴを検証", () => {
+  const manifest = JSON.parse(readFileSync(path.join(here, "..", "manifest.json"), "utf8"));
+  assert.equal(manifest.version, "0.2.1");
+  for (const size of [16, 32, 48, 128]) {
+    const name = `icon${size}.png`;
+    assert.equal(manifest.icons[String(size)], name);
+    assert.equal(manifest.action.default_icon[String(size)], name);
+    const image = readFileSync(path.join(here, "..", name));
+    assert.deepEqual([...image.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+    assert.equal(image.readUInt32BE(16), size);
+    assert.equal(image.readUInt32BE(20), size);
+  }
+  assert.match(source, /src: "icon32.png"/);
+});

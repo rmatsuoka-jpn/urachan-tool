@@ -10,6 +10,7 @@ on:
       - panel.html
       - panel.css
       - panel.js
+      - 'icon*.png'
       - tests/**
       - .github/workflows/release-extension.yml
   workflow_dispatch:
@@ -32,7 +33,7 @@ jobs:
           node --check background.js
           node --check panel.js
           node --test tests/panel.test.mjs
-          node -e 'const m=require("./manifest.json"); if(m.manifest_version!==3 || m.side_panel?.default_path!=="panel.html") process.exit(1)'
+          node -e 'const fs=require("node:fs"); const m=require("./manifest.json"); if(m.manifest_version!==3 || m.side_panel?.default_path!=="panel.html") process.exit(1); for(const n of [16,32,48,128]) {const f="icon"+n+".png"; if(m.icons?.[n]!==f || m.action?.default_icon?.[n]!==f || !fs.existsSync(f)) process.exit(1);}'
 
       - name: Determine version
         shell: bash
@@ -51,11 +52,12 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           zip -j -9 "dist/urachan-tool-v${VERSION}.zip" \
-            manifest.json background.js panel.html panel.css panel.js
+            manifest.json background.js panel.html panel.css panel.js \
+            icon16.png icon32.png icon48.png icon128.png
 
           # Fail if the archive contains even one unexpected file.
           diff -u \
-            <(printf '%s\n' manifest.json background.js panel.html panel.css panel.js | sort) \
+            <(printf '%s\n' manifest.json background.js panel.html panel.css panel.js icon16.png icon32.png icon48.png icon128.png | sort) \
             <(unzip -Z1 "dist/urachan-tool-v${VERSION}.zip" | sort)
 
           unzip -t "dist/urachan-tool-v${VERSION}.zip"
@@ -92,4 +94,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "うらちゃんツール ${tag}（デモ版）" \
-            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。動作に必要な5ファイルだけを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
+            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。動作に必要なソース5ファイルとアイコン4ファイルだけを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
