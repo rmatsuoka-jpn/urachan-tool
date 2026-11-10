@@ -2,10 +2,13 @@
   "manifest_version": 3,
   "name": "うらちゃんツール",
   "short_name": "うらちゃん",
-  "version": "0.1.1",
-  "description": "閉域環境で使える、定型文コピーと業務支援のサイドパネル。",
+  "version": "0.2.0",
+  "description": "閉域環境で使える、定型文コピーと日付変換などの業務支援サイドパネル。",
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "storage"],
+  "permissions": [
+    "sidePanel",
+    "storage"
+  ],
   "background": {
     "service_worker": "background.js"
   },
