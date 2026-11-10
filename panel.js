@@ -1,6 +1,6 @@
 "use strict";
 
-const STORAGE_KEY = "urachanAppState";
+const STORAGE_KEY = "urachanAppStateV2";
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_ITEMS = 500;
 const MAX_TITLE = 80;
@@ -37,6 +37,8 @@ let state = structuredClone(DEFAULT_STATE);
 let view = "home";
 let activeModule = "templates";
 let selectedSharedSetId = null;
+let pendingSharedImport = null;
+let devApplyLocally = false;
 let conversionDirection = "western";
 let westernInputYear = String(new Date().getFullYear());
 let japaneseInputEra = "令和";
@@ -171,6 +173,47 @@ function validatePersonal(data) {
   }
   return { personal, favoriteKeys: [...new Set(data.favoriteKeys)] };
 }
+function validateBackup(data) {
+  if (!data || data.format !== "urachan-backup" || data.version !== 2 || !data.modules) {
+    throw Error("このファイルは対応しているバックアップではありません。");
+  }
+  const templates = data.modules.templates;
+  const settings = data.modules.settings;
+  const preferences = data.modules.sharedPreferences;
+  if (!templates || !settings || !Array.isArray(settings.visibleModules)
+    || !Array.isArray(preferences) || preferences.length > MAX_ITEMS
+    || settings.visibleModules.length < 1 || settings.visibleModules.length > FEATURES.length
+    || !settings.visibleModules.every((id) => FEATURES.some((feature) => feature.id === id))
+    || new Set(settings.visibleModules).size !== settings.visibleModules.length) {
+    throw Error("バックアップ内の設定が正しくありません。");
+  }
+  const validated = validatePersonal({
+    format: "urachan-personal", version: 1,
+    personal: templates.personal, favoriteKeys: templates.favoriteKeys
+  });
+  if (!preferences.every((pref) =>
+    pref && typeof pref.id === "string" && ID_PATTERN.test(pref.id)
+    && typeof pref.enabled === "boolean") ||
+    new Set(preferences.map((pref) => pref.id)).size !== preferences.length) {
+    throw Error("組織共通データの表示設定が正しくありません。");
+  }
+  return {
+    personal: validated.personal, favoriteKeys: validated.favoriteKeys,
+    visibleModules: [...settings.visibleModules],
+    sharedPreferences: preferences.map((pref) => ({ id: pref.id, enabled: pref.enabled }))
+  };
+}
+function createBackup() {
+  return {
+    format: "urachan-backup", version: 2,
+    createdAt: new Date().toISOString(),
+    modules: {
+      templates: { personal: state.personal, favoriteKeys: state.favoriteKeys },
+      sharedPreferences: state.sharedPreferences,
+      settings: { visibleModules: state.visibleModules }
+    }
+  };
+}
 function exportJson(filename, object) {
   const json = JSON.stringify(object, null, 2) + "\n";
   const url = URL.createObjectURL(new Blob([json], { type: "application/json;charset=utf-8" }));
@@ -271,8 +314,9 @@ function removeOrphanSharedFavorites(setId, items) {
 }
 function upsertShared(set) {
   const index = state.sharedSets.findIndex((candidate) => candidate.id === set.id);
-  if (index >= 0) state.sharedSets[index] = structuredClone(set);
-  else state.sharedSets.push(structuredClone(set));
+  const incoming = { ...structuredClone(set), importedAt: new Date().toISOString() };
+  if (index >= 0) state.sharedSets[index] = incoming;
+  else state.sharedSets.push(incoming);
   removeOrphanSharedFavorites(set.id, set.items);
   persist();
 }
@@ -322,7 +366,7 @@ function renderHeader() {
         nav.append(button);
       });
     }
-    nav.append(btn("＋ 機能", "feature-add", () => navigate("settings")));
+    nav.append(btn("＋ 機能", "feature-add", () => navigate("feature-settings")));
     header.append(nav);
   }
   return header;
@@ -405,7 +449,7 @@ function localIsoDate(date) {
 }
 function yearToJapanese(value) {
   const year = Number(value);
-  if (!/^\\d{1,4}$/.test(String(value)) || !Number.isInteger(year) || year < 1) return "—";
+  if (!/^\d{1,4}$/.test(String(value)) || !Number.isInteger(year) || year < 1) return "—";
   const matches = ERAS.filter((e) => year >= e.start && (e.end === null || year <= e.end));
   return matches.length
     ? matches.map((e) => e.name + (year === e.start ? "元" : String(year - e.start + 1)) + "年").join(" / ")
@@ -414,13 +458,13 @@ function yearToJapanese(value) {
 function japaneseToYear(eraName, yearText) {
   const selected = ERAS.find((e) => e.name === eraName);
   const n = Number(yearText);
-  if (!selected || !/^\\d{1,3}$/.test(String(yearText)) || !Number.isInteger(n) || n < 1) return "—";
+  if (!selected || !/^\d{1,3}$/.test(String(yearText)) || !Number.isInteger(n) || n < 1) return "—";
   const result = selected.start + n - 1;
   if (selected.end !== null && result > selected.end) return "対象外";
   return result + "年";
 }
 function parseDateInput(value) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const [year, month, day] = value.split("-").map(Number);
   const result = new Date(0);
   result.setUTCHours(0, 0, 0, 0);
@@ -431,7 +475,7 @@ function parseDateInput(value) {
 }
 function calculateDate(base, offset) {
   const date = parseDateInput(base);
-  if (!date || !/^-?\\d{1,6}$/.test(String(offset)) || Math.abs(Number(offset)) > 365000) return null;
+  if (!date || !/^-?\d{1,6}$/.test(String(offset)) || Math.abs(Number(offset)) > 365000) return null;
   date.setUTCDate(date.getUTCDate() + Number(offset));
   if (date.getUTCFullYear() < 1 || date.getUTCFullYear() > 9999) return null;
   return { date: date.getUTCFullYear() + "/" + String(date.getUTCMonth() + 1).padStart(2, "0") +
@@ -587,74 +631,47 @@ function renderPersonalEditor(main) {
     main.append(deletion);
   }
 }
+
+function helpPopup(value) {
+  const details = el("details", { class: "help-popover" }, [
+    el("summary", { title: "説明を表示", "aria-label": "説明を表示" }, "？"),
+    el("p", {}, value)
+  ]);
+  return details;
+}
+function settingsLink(icon, title, subtitle, target) {
+  return el("button", {
+    type: "button", class: "settings-link",
+    onClick: () => navigate(target)
+  }, [
+    text("span", icon, "settings-link-icon"),
+    el("span", { class: "settings-link-text" }, [
+      text("strong", title), text("small", subtitle)
+    ]),
+    text("span", "›", "settings-link-arrow")
+  ]);
+}
 function renderSettings(main) {
-  main.append(...heading("設定", "普段は設定を変えなくても、そのまま利用できます。"));
-  const modeBox = el("section", { class: "card" }, [text("h2", "表示モード")]);
-  const labelSimple = el("label", { class: "checkbox-row" }, [
-    el("input", {
-      type: "radio", name: "displayMode", value: "simple", checked: state.displayMode === "simple",
-      onChange: () => { state.displayMode = "simple"; persist(); render(); }
-    }), "シンプル（定型文コピー中心）"
-  ]);
-  const labelAdvanced = el("label", { class: "checkbox-row" }, [
-    el("input", {
-      type: "radio", name: "displayMode", value: "advanced", checked: state.displayMode === "advanced",
-      onChange: () => { state.displayMode = "advanced"; persist(); render(); }
-    }), "拡張（機能メニューを表示）"
-  ]);
-  modeBox.append(labelSimple, labelAdvanced);
-  main.append(modeBox);
-  const common = el("section", { class: "card" }, [
-    text("h2", "組織共通定型文を取り込む"),
-    text("p", "配布されたJSONファイルを選ぶだけで追加・更新できます。個人用の定型文は変更されません。")
-  ]);
-  common.append(attachJsonInput(async (data) => {
-    const set = validateShared(data);
-    const exists = state.sharedSets.some((x) => x.id === set.id);
-    upsertShared(set);
-    notify((exists ? "更新" : "取り込み") + "しました：" + set.name + "（" + set.items.length + "件）");
-  }));
-  if (state.sharedSets.length) {
-    common.append(text("p", "取り込み済み：" + state.sharedSets.map((set) => set.name).join("、"), "help"));
-  }
-  main.append(common);
-  const personalBox = el("section", { class: "card" }, [
-    text("h2", "個人データのバックアップ・復元"),
-    text("p", "個人用の定型文とお気に入りを、JSONファイルで保存・復元できます。")
-  ]);
-  personalBox.append(btn("バックアップを保存", "button-secondary full", () => {
-    exportJson("urachan-personal.json", {
-      format: "urachan-personal", version: 1,
-      personal: state.personal, favoriteKeys: state.favoriteKeys
-    });
-    notify("個人データをファイルに書き出しました");
-  }));
-  personalBox.append(field("バックアップを復元", attachJsonInput(async (data) => {
-    const imported = validatePersonal(data);
-    if (!confirm("個人用の定型文とお気に入りをバックアップの内容で置き換えます。続けますか？")) return;
-    state.personal = imported.personal;
-    state.favoriteKeys = imported.favoriteKeys;
-    await persist();
-    notify("個人データを復元しました");
-  }), "復元すると現在の個人用データは置き換わります。共通定型文は維持します。"));
-  main.append(personalBox);
+  main.append(...heading("設定"));
+  main.append(el("section", { class: "settings-links" }, [
+    settingsLink("▦", "表示する機能", "機能の追加・非表示", "feature-settings"),
+    settingsLink("▣", "組織共通データ", "取り込み・有効／無効・削除", "shared-manager"),
+    settingsLink("▤", "バックアップ・復元", "個人データと設定をまとめて保存", "backup-manager")
+  ]));
   if (state.developerEnabled) {
     const devBox = el("section", { class: "card" }, [
       text("h2", "開発者用メニュー"),
-      text("p", "組織共通JSONの作成・編集・書き出しを行います。")
+      btn("共通JSONを作成・編集", "button-secondary full", () => navigate("developer")),
+      btn("開発者モードを終了", "button-plain full", () => {
+        state.developerEnabled = false;
+        devDraft = null;
+        persist(); render(); notify("開発者モードを終了しました");
+      })
     ]);
-    devBox.append(btn("共通JSONを作成・編集", "button-secondary full", () => navigate("developer")));
-    devBox.append(btn("開発者モードを終了", "button-plain full", () => {
-      state.developerEnabled = false;
-      devDraft = null;
-      persist();
-      render();
-      notify("開発者モードを終了しました");
-    }));
     main.append(devBox);
   }
   const version = el("button", {
-    type: "button", class: "version", "aria-label": "バージョン 0.1.1",
+    type: "button", class: "version", "aria-label": "バージョン 0.2.0",
     onClick: () => {
       if (state.developerEnabled) return;
       const now = Date.now();
@@ -663,25 +680,189 @@ function renderSettings(main) {
       if (versionTapCount >= 5) {
         versionTapCount = 0;
         state.developerEnabled = true;
-        persist();
-        render();
-        notify("開発者モードを有効にしました");
+        persist(); render(); notify("開発者モードを有効にしました");
       } else if (versionTapCount >= 3) {
         const hint = document.getElementById("developer-hint");
         if (hint) hint.textContent = "あと" + (5 - versionTapCount) + "回で開発者モード";
       }
     }
-  }, "うらちゃんツール v0.1.1");
+  }, "うらちゃんツール v0.2.0");
   main.append(version, el("div", { id: "developer-hint", class: "dev-hint" }));
-  main.append(text("p", "このPC内に保存されます。共用PCでは同じChromeプロファイルの利用者に内容が見える場合があります。", "info warning"));
+  main.append(helpPopup("データはこのPCのChromeプロファイルに保存されます。共用PCでは他の利用者から見える可能性があります。"));
+}
+function renderFeatureSettings(main) {
+  main.append(...heading("表示する機能"));
+  main.append(text("p", "使う機能だけを選択できます。いつでも変更できます。", "explain"));
+  const section = el("section", { class: "card feature-settings-card" });
+  FEATURES.forEach((feature) => {
+    const checkbox = el("input", {
+      type: "checkbox", checked: state.visibleModules.includes(feature.id),
+      "aria-label": feature.name + "を表示",
+      onChange: (event) => {
+        const next = event.target.checked
+          ? [...state.visibleModules, feature.id]
+          : state.visibleModules.filter((id) => id !== feature.id);
+        if (!next.length) {
+          event.target.checked = true;
+          notify("少なくとも1つの機能を表示してください。");
+          return;
+        }
+        state.visibleModules = next;
+        if (!next.includes(activeModule)) activeModule = next[0];
+        persist();
+      }
+    });
+    section.append(el("label", { class: "feature-setting-row" }, [
+      el("span", {}, [
+        text("strong", feature.name),
+        text("small", feature.description)
+      ]), checkbox
+    ]));
+  });
+  main.append(section);
+}
+function renderSharedManager(main) {
+  main.append(...heading("組織共通データ"));
+  const fileBox = el("section", { class: "card" }, [
+    el("div", { class: "card-heading" }, [
+      text("h2", "JSONファイルを取り込む"),
+      helpPopup("配布されたJSONを読み込むと、新しいセットは追加され、同じIDのセットは置き換わります。無効にした状態は維持されます。")
+    ])
+  ]);
+  fileBox.append(attachJsonInput(async (data) => {
+    pendingSharedImport = validateShared(data);
+    render();
+  }));
+  main.append(fileBox);
+  if (pendingSharedImport) {
+    const set = pendingSharedImport;
+    const existing = state.sharedSets.find((item) => item.id === set.id);
+    const confirmBox = el("section", { class: "card import-preview" }, [
+      text("h2", "取り込み内容の確認"),
+      text("strong", set.name),
+      text("p", set.items.length + "件の定型文 ／ " +
+        (existing ? "既存の" + existing.items.length + "件を置き換え" : "新規追加")),
+      text("p", "個人用データは変更されません。")
+    ]);
+    confirmBox.append(el("div", { class: "controls" }, [
+      btn("キャンセル", "button-secondary", () => { pendingSharedImport = null; render(); }),
+      btn("取り込む", "button-primary", () => {
+        const wasExisting = Boolean(existing);
+        upsertShared(set);
+        pendingSharedImport = null;
+        render();
+        notify((wasExisting ? "更新" : "取り込み") + "しました：" + set.name);
+      })
+    ]));
+    main.append(confirmBox);
+  }
+  main.append(el("div", { class: "card-heading section-separator" }, [
+    text("h2", "取り込み済みのセット"),
+    helpPopup("無効にするとすべての定型文タブから非表示になります。データとお気に入りは残るため、再度有効にすると元どおり表示されます。")
+  ]));
+  if (!state.sharedSets.length) {
+    main.append(el("div", { class: "empty" }, [
+      text("strong", "まだ共通データがありません"),
+      text("p", "配布されたJSONファイルを取り込んでください。")
+    ]));
+    return;
+  }
+  state.sharedSets.forEach((set) => {
+    const checkbox = el("input", {
+      type: "checkbox", checked: isSharedEnabled(set.id),
+      "aria-label": set.name + "を有効にする",
+      onChange: (event) => {
+        setSharedEnabled(set.id, event.target.checked);
+      }
+    });
+    const card = el("section", { class: "card shared-set-card" }, [
+      el("div", { class: "shared-set-top" }, [
+        el("div", { class: "shared-set-title" }, [
+          text("strong", set.name),
+          text("small", set.items.length + "件の定型文")
+        ]),
+        el("label", { class: "shared-switch" }, [checkbox, text("span", "有効")])
+      ]),
+      btn("詳細を見る ›", "button-secondary full", () => {
+        selectedSharedSetId = set.id;
+        navigate("shared-details");
+      })
+    ]);
+    main.append(card);
+  });
+}
+function renderSharedDetails(main) {
+  const set = state.sharedSets.find((item) => item.id === selectedSharedSetId);
+  if (!set) return navigate("shared-manager");
+  main.append(...heading("セットの詳細"));
+  const card = el("section", { class: "card" }, [
+    text("h2", set.name),
+    text("p", "定型文：" + set.items.length + "件"),
+    text("p", set.importedAt ? "取り込み日：" + new Date(set.importedAt).toLocaleDateString("ja-JP") : "")
+  ]);
+  const enabled = el("input", {
+    type: "checkbox", checked: isSharedEnabled(set.id),
+    "aria-label": "このセットを有効にする",
+    onChange: (event) => setSharedEnabled(set.id, event.target.checked)
+  });
+  card.append(el("label", { class: "feature-setting-row" }, [
+    text("strong", "このセットを使用する"), enabled
+  ]));
+  main.append(card);
+  const danger = el("section", { class: "card" }, [
+    text("h2", "このPCから削除"),
+    text("p", "削除するとこのセットの共通定型文と、そのお気に入り設定が消えます。個人用にコピーした定型文は残ります。")
+  ]);
+  danger.append(btn("このセットを削除", "button-danger full", () => {
+    if (!confirm("「" + set.name + "」をこのPCから削除します。元には戻せません。続けますか？")) return;
+    removeSharedSet(set.id);
+    selectedSharedSetId = null;
+    navigate("shared-manager");
+    notify("共通セットを削除しました");
+  }));
+  main.append(danger);
+}
+function renderBackupManager(main) {
+  main.append(...heading("バックアップ・復元"));
+  const backup = el("section", { class: "card" }, [
+    el("div", { class: "card-heading" }, [
+      text("h2", "バックアップ"),
+      helpPopup("個人用定型文、お気に入り、機能の表示設定、組織共通セットの有効・無効を一括保存します。組織共通の本文は含みません。")
+    ])
+  ]);
+  backup.append(btn("バックアップを保存", "button-primary full", () => {
+    exportJson("urachan-backup.json", createBackup());
+    notify("バックアップを保存しました");
+  }));
+  const restore = el("section", { class: "card" }, [
+    el("div", { class: "card-heading" }, [
+      text("h2", "バックアップから復元"),
+      helpPopup("復元すると、現在の個人用定型文・お気に入り・表示設定を置き換えます。組織共通の本文は変更しません。")
+    ])
+  ]);
+  restore.append(attachJsonInput(async (data) => {
+    const imported = validateBackup(data);
+    if (!confirm("現在の個人用データと設定をバックアップの内容で置き換えます。続けますか？")) return;
+    state.personal = imported.personal;
+    state.favoriteKeys = imported.favoriteKeys;
+    state.visibleModules = imported.visibleModules;
+    state.sharedPreferences = imported.sharedPreferences;
+    if (!state.visibleModules.includes(activeModule)) activeModule = state.visibleModules[0];
+    await persist();
+    render();
+    notify("バックアップから復元しました");
+  }));
+  main.append(backup, restore);
 }
 function newSharedDraft() {
+  devApplyLocally = false;
   devDraft = { id: "set-" + uniqueId(), name: "", items: [] };
   devItemIndex = null;
   devItemDraft = null;
   render();
 }
 function openSharedDraft(id) {
+  devApplyLocally = false;
   const set = state.sharedSets.find((entry) => entry.id === id);
   if (!set) return;
   devDraft = structuredClone(set);
@@ -725,6 +906,7 @@ function renderDeveloper(main) {
   }
   options.append(field("配布用JSONを読み込んで編集", attachJsonInput(async (data) => {
     devDraft = validateShared(data);
+    devApplyLocally = false;
     devItemIndex = null;
     devItemDraft = null;
     render();
@@ -734,7 +916,7 @@ function renderDeveloper(main) {
   if (!devDraft) return;
   const editor = el("section", { class: "card" }, [
     text("h2", "編集中の共通セット"),
-    text("p", "変更は「このPCに反映」または「JSONを書き出す」で保存します。")
+    text("p", "作成したJSONを配布できます。このPCへの反映は任意です。")
   ]);
   const nameInput = el("input", {
     value: devDraft.name, maxlength: MAX_TITLE, placeholder: "例：総務課の定型文",
@@ -787,6 +969,13 @@ function renderDeveloper(main) {
     editor.append(btn("＋ 定型文を追加", "button-secondary full", () => showDevItemEditor(-1)));
   }
   const controls = el("div", { class: "controls" });
+  editor.append(el("label", { class: "checkbox-row" }, [
+    el("input", {
+      type: "checkbox", checked: devApplyLocally,
+      onChange: (event) => { devApplyLocally = event.target.checked; }
+    }),
+    "JSON書き出し時にこのPCにも反映する"
+  ]));
   controls.append(btn("このPCに反映", "button-secondary", () => {
     try {
       const set = ensureSharedDraft();
@@ -797,26 +986,15 @@ function renderDeveloper(main) {
   controls.append(btn("JSONを書き出す", "button-primary", () => {
     try {
       const set = ensureSharedDraft();
-      upsertShared(set);
+      if (devApplyLocally) upsertShared(set);
       exportJson("urachan-common-" + safeName(set.id) + ".json", {
         format: "urachan-shared", version: 1, set
       });
-      notify("共通JSONを書き出しました。このPCにも反映済みです。");
+      notify(devApplyLocally ? "共通JSONを書き出し、このPCにも反映しました。" : "共通JSONを書き出しました。このPCには反映していません。");
     } catch (error) { notify(error.message); }
   }));
   editor.append(controls);
-  if (state.sharedSets.some((set) => set.id === devDraft.id)) {
-    editor.append(btn("このPCから共通セットを削除", "button-danger full", () => {
-      if (!confirm("このPCから共通セットを削除します。個人用の定型文は変更されません。続けますか？")) return;
-      const id = devDraft.id;
-      state.sharedSets = state.sharedSets.filter((set) => set.id !== id);
-      state.favoriteKeys = state.favoriteKeys.filter((key) => !key.startsWith("s:" + id + ":"));
-      devDraft = null;
-      persist();
-      render();
-      notify("共通セットを削除しました");
-    }));
-  }
+  // 共通セットの削除は一般向けの組織共通データ管理画面に集約します。
   main.append(editor);
 }
 function render() {
@@ -825,6 +1003,10 @@ function render() {
   const main = el("main");
   if (view === "home") renderHome(main);
   else if (view === "settings") renderSettings(main);
+  else if (view === "feature-settings") renderFeatureSettings(main);
+  else if (view === "shared-manager") renderSharedManager(main);
+  else if (view === "shared-details") renderSharedDetails(main);
+  else if (view === "backup-manager") renderBackupManager(main);
   else if (view === "personal-editor") renderPersonalEditor(main);
   else if (view === "developer") renderDeveloper(main);
   app.append(main);
@@ -833,16 +1015,20 @@ async function start() {
   try {
     const value = await chrome.storage.local.get(STORAGE_KEY);
     const stored = value[STORAGE_KEY];
-    if (stored && stored.version === 1 && Array.isArray(stored.personal)
-      && Array.isArray(stored.sharedSets) && Array.isArray(stored.favoriteKeys)) {
+    if (stored && stored.version === 2
+      && Array.isArray(stored.personal) && Array.isArray(stored.sharedSets)
+      && Array.isArray(stored.favoriteKeys) && Array.isArray(stored.sharedPreferences)
+      && Array.isArray(stored.visibleModules)) {
       state = {
-        version: 1,
-        displayMode: stored.displayMode === "advanced" ? "advanced" : "simple",
+        ...structuredClone(DEFAULT_STATE),
         developerEnabled: stored.developerEnabled === true,
         personal: stored.personal,
         sharedSets: stored.sharedSets,
-        favoriteKeys: stored.favoriteKeys
+        favoriteKeys: stored.favoriteKeys,
+        sharedPreferences: stored.sharedPreferences,
+        visibleModules: stored.visibleModules.filter((id) => FEATURES.some((f) => f.id === id))
       };
+      if (!state.visibleModules.length) state.visibleModules = ["templates"];
     }
   } catch (error) {
     console.error("保存データを読み込めませんでした", error);
@@ -850,4 +1036,5 @@ async function start() {
   }
   render();
 }
+
 start();
