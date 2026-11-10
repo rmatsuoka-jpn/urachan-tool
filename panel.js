@@ -1,7 +1,7 @@
 "use strict";
 
 const STORAGE_KEY = "urachanAppStateV2";
-const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_ITEMS = 500;
 const MAX_BOOKMARKS = 1500;
 const MAX_PRESETS = 30;
@@ -20,7 +20,8 @@ const FEATURES = [
   { id: "templates", name: "定型文", description: "登録した文章をワンクリックコピー" },
   { id: "dates", name: "日付ツール", description: "西暦・和暦変換と日付計算" },
   { id: "bookmarks", name: "あとで見る", description: "現在のページを保存し、タグで整理" },
-  { id: "images", name: "画像変換", description: "JPEG・PNG・HEICをリサイズ・圧縮・変換" }
+  { id: "images", name: "画像変換", description: "JPEG・PNG・HEICをリサイズ・圧縮・変換" },
+  { id: "tasks", name: "メモ・タスク", description: "やることと対応履歴を記録し、AI向けに出力" }
 ];
 const ERAS = [
   { name: "令和", start: 2019, end: null },
@@ -43,6 +44,7 @@ const DEFAULT_STATE = {
   sharedPreferences: [],
   favoriteKeys: [],
   bookmarks: [],
+  tasks: [],
   bookmarkPresets: structuredClone(DEFAULT_BOOKMARK_PRESETS),
   bookmarkTags: [...DEFAULT_BOOKMARK_TAGS]
 };
@@ -475,11 +477,13 @@ function validateBackup(data) {
   }
   const bookmarks = data.modules.bookmarks === undefined
     ? null : validateBookmarkData(data.modules.bookmarks);
+  const tasks = data.modules.tasks === undefined
+    ? null : window.UraTaskTools.validateTickets(data.modules.tasks);
   return {
     personal: validated.personal, favoriteKeys: validated.favoriteKeys,
     visibleModules: [...settings.visibleModules],
     sharedPreferences: preferences.map((pref) => ({ id: pref.id, enabled: pref.enabled })),
-    bookmarks
+    bookmarks, tasks
   };
 }
 function createBackup() {
@@ -490,7 +494,8 @@ function createBackup() {
       templates: { personal: state.personal, favoriteKeys: state.favoriteKeys },
       sharedPreferences: state.sharedPreferences,
       settings: { visibleModules: state.visibleModules },
-      bookmarks: bookmarkDataSnapshot()
+      bookmarks: bookmarkDataSnapshot(),
+      tasks: state.tasks
     }
   };
 }
@@ -505,7 +510,7 @@ function exportJson(filename, object) {
 }
 async function loadJsonFile(file) {
   if (!file) return null;
-  if (file.size > MAX_FILE_BYTES) throw Error("1MB以下のJSONファイルを選んでください。");
+  if (file.size > MAX_FILE_BYTES) throw Error("10MB以下のJSONファイルを選んでください。");
   let value;
   try {
     value = JSON.parse(await file.text());
@@ -701,6 +706,7 @@ function renderHome(main) {
   if (activeModule === "dates") return renderDateTools(main);
   if (activeModule === "bookmarks") return renderBookmarks(main);
   if (activeModule === "images") return window.UraImageTools.render(main);
+  if (activeModule === "tasks") return window.UraTaskTools.render(main, { state, persist, notify });
   main.append(...heading("定型文をコピー", "使いたい文章を押すだけでコピーできます。"));
   const search = el("input", {
     type: "search", class: "search", value: queryText,
@@ -1525,7 +1531,7 @@ function renderBackupManager(main) {
   const backup = el("section", { class: "card" }, [
     el("div", { class: "card-heading" }, [
       text("h2", "バックアップ"),
-      helpPopup("個人用定型文、お気に入り、あとで見るのURL・タイトル・タグ・保存ボタン、機能の表示設定、組織共通セットの有効・無効を一括保存します。組織共通の本文は含みません。")
+      helpPopup("個人用定型文、お気に入り、あとで見る、メモ・タスクと対応履歴、機能の表示設定、組織共通セットの有効・無効を一括保存します。組織共通の本文は含みません。")
     ])
   ]);
   backup.append(btn("バックアップを保存", "button-primary full", () => {
@@ -1535,7 +1541,7 @@ function renderBackupManager(main) {
   const restore = el("section", { class: "card" }, [
     el("div", { class: "card-heading" }, [
       text("h2", "バックアップから復元"),
-      helpPopup("復元すると、現在の個人用定型文・お気に入り・表示設定を置き換えます。v0.3.0以降のバックアップにはブックマークも含み、同時に置き換えます。旧バックアップにブックマーク情報がない場合は現在のものを維持します。組織共通本文は変更しません。")
+      helpPopup("復元すると、現在の個人データ・表示設定を置き換えます。バックアップにブックマークやメモ・タスクが含まれる場合は、それぞれ同時に置き換えます。含まれない古いバックアップでは、そのデータを維持します。組織共通本文は変更しません。")
     ])
   ]);
   restore.append(attachJsonInput(async (data) => {
@@ -1550,6 +1556,7 @@ function renderBackupManager(main) {
       state.bookmarkPresets = imported.bookmarks.presets;
       state.bookmarkTags = imported.bookmarks.tags;
     }
+    if (imported.tasks !== null) state.tasks = imported.tasks;
     if (!state.visibleModules.includes(activeModule)) activeModule = state.visibleModules[0];
     await persist();
     render();
@@ -1754,6 +1761,12 @@ async function start() {
       } catch (error) {
         console.error("ブックマークを読み込めませんでした", error);
         notify("ブックマークの読み込みに失敗しました。バックアップをご確認ください。");
+      }
+      try {
+        state.tasks = window.UraTaskTools.validateTickets(stored.tasks === undefined ? [] : stored.tasks);
+      } catch (error) {
+        console.error("メモ・タスクを読み込めませんでした", error);
+        notify("メモ・タスクを読み込めませんでした。バックアップをご確認ください。");
       }
       if (!state.visibleModules.length) state.visibleModules = ["templates"];
     }
