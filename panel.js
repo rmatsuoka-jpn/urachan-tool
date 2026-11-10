@@ -60,6 +60,13 @@ let calculationDate = localIsoDate(new Date());
 let calculationOffset = "30";
 let bookmarkQuery = "";
 let bookmarkTagFilter = "all";
+let bookmarkFavoriteOnly = false;
+let bookmarkDateFilter = "all";
+let bookmarkDateFrom = "";
+let bookmarkDateTo = "";
+let bookmarkSort = "new";
+let bookmarkShownCount = 5;
+let editingTagName = null;
 let editingBookmarkId = null;
 let bookmarkTitleDraft = "";
 let bookmarkNewTagDraft = "";
@@ -232,7 +239,11 @@ function validateBookmarkData(data) {
     const url = normalizeBookmarkUrl(item.url);
     if (usedUrls.has(url)) throw Error("重複したURLが含まれています。");
     usedIds.add(item.id); usedUrls.add(url);
-    return { id: item.id, title: item.title, url, tags: [...item.tags], savedAt: item.savedAt };
+    if (item.favorite !== undefined && typeof item.favorite !== "boolean") {
+      throw Error("お気に入り情報が正しくありません。");
+    }
+    return { id: item.id, title: item.title, url, tags: [...item.tags],
+      savedAt: item.savedAt, favorite: item.favorite === true };
   });
   const presets = data.presets.map((preset) => {
     if (!preset || typeof preset.id !== "string" || !ID_PATTERN.test(preset.id)
@@ -272,7 +283,7 @@ function storeBookmark(url, title, presetTags) {
   if (state.bookmarks.length >= MAX_BOOKMARKS) throw Error("保存件数の上限に達しました。");
   state.bookmarks.unshift({
     id: uniqueId(), url: normalizedUrl, title: cleanTitle, tags: [...new Set(presetTags)],
-    savedAt: new Date().toISOString()
+    savedAt: new Date().toISOString(), favorite: false
   });
   persist();
   return { added: true, newTags: presetTags.length };
@@ -301,16 +312,113 @@ function allBookmarkTags() {
     ...state.bookmarks.flatMap((item) => item.tags),
     ...state.bookmarkPresets.flatMap((preset) => preset.tags)])];
 }
-function visibleBookmarks() {
+function bookmarkTagUsage(tag) {
+  return state.bookmarks.filter((item) => item.tags.includes(tag)).length;
+}
+function renameBookmarkTag(oldTag, nextTag) {
+  if (!allBookmarkTags().includes(oldTag)) throw Error("変更するタグが見つかりません。");
+  const value = nextTag.trim();
+  if (!validTag(value)) throw Error("タグ名は1〜32文字で入力してください。");
+  if (oldTag === value) return false;
+  const targetAlreadyExists = allBookmarkTags().includes(value);
+  // 同名タグがあれば統合する。ブックマークと保存ボタンの両方で重複を防止。
+  for (const item of state.bookmarks) {
+    item.tags = [...new Set(item.tags.map((tag) => tag === oldTag ? value : tag))];
+  }
+  for (const preset of state.bookmarkPresets) {
+    preset.tags = [...new Set(preset.tags.map((tag) => tag === oldTag ? value : tag))];
+  }
+  state.bookmarkTags = [...new Set(state.bookmarkTags
+    .map((tag) => tag === oldTag ? value : tag))];
+  if (!state.bookmarkTags.includes(value)) {
+    if (state.bookmarkTags.length >= MAX_TAGS && !targetAlreadyExists) {
+      throw Error("タグの登録数が上限に達しました。");
+    }
+    state.bookmarkTags.push(value);
+  }
+  if (bookmarkTagFilter === "tag:" + oldTag) bookmarkTagFilter = "tag:" + value;
+  persist();
+  return true;
+}
+function deleteBookmarkTag(tag) {
+  if (!allBookmarkTags().includes(tag)) throw Error("削除するタグが見つかりません。");
+  const blocked = state.bookmarkPresets.filter((preset) =>
+    preset.tags.length === 1 && preset.tags[0] === tag);
+  if (blocked.length) {
+    throw Error("このタグだけを使用する保存ボタン「" +
+      blocked.map((preset) => preset.label).join("、") +
+      "」があります。先に保存ボタンの設定を変更してください。");
+  }
+  const affected = bookmarkTagUsage(tag);
+  state.bookmarkTags = state.bookmarkTags.filter((name) => name !== tag);
+  state.bookmarks.forEach((item) => { item.tags = item.tags.filter((name) => name !== tag); });
+  state.bookmarkPresets.forEach((preset) => {
+    preset.tags = preset.tags.filter((name) => name !== tag);
+  });
+  if (bookmarkTagFilter === "tag:" + tag) bookmarkTagFilter = "all";
+  persist();
+  return affected;
+}
+function toggleBookmarkFavorite(bookmarkId) {
+  const item = state.bookmarks.find((entry) => entry.id === bookmarkId);
+  if (!item) throw Error("ブックマークが見つかりません。");
+  item.favorite = !item.favorite;
+  persist();
+  return item.favorite;
+}
+function bookmarkDateMatches(savedAt, today = new Date()) {
+  const date = new Date(savedAt);
+  if (Number.isNaN(date.getTime())) return false;
+  if (bookmarkDateFilter === "all") return true;
+  const localDate = localIsoDate(date);
+  const currentDay = localIsoDate(today);
+  if (bookmarkDateFilter === "today") return localDate === currentDay;
+  if (bookmarkDateFilter === "7" || bookmarkDateFilter === "30") {
+    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    day.setDate(day.getDate() - (Number(bookmarkDateFilter) - 1));
+    return localDate >= localIsoDate(day) && localDate <= currentDay;
+  }
+  if (bookmarkDateFilter === "range") {
+    if (bookmarkDateFrom && localDate < bookmarkDateFrom) return false;
+    if (bookmarkDateTo && localDate > bookmarkDateTo) return false;
+    return true;
+  }
+  return true;
+}
+function formatBookmarkTimestamp(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return localIsoDate(d).replaceAll("-", "/") + " " +
+    String(d.getHours()).padStart(2, "0") + ":" +
+    String(d.getMinutes()).padStart(2, "0");
+}
+function visibleBookmarks(today = new Date()) {
   const needle = bookmarkQuery.trim().toLocaleLowerCase();
   return [...state.bookmarks]
     .filter((item) => {
+      if (bookmarkFavoriteOnly && !item.favorite) return false;
       if (bookmarkTagFilter === "untagged" && item.tags.length !== 0) return false;
       if (bookmarkTagFilter.startsWith("tag:") &&
         !item.tags.includes(bookmarkTagFilter.slice(4))) return false;
+      if (!bookmarkDateMatches(item.savedAt, today)) return false;
       return [item.title, item.url, ...item.tags].join(" ").toLocaleLowerCase().includes(needle);
     })
-    .sort((a,b) => b.savedAt.localeCompare(a.savedAt));
+    .sort((a, b) => {
+      if (bookmarkSort === "favorite") {
+        const priority = Number(Boolean(b.favorite)) - Number(Boolean(a.favorite));
+        if (priority) return priority;
+      }
+      if (bookmarkSort === "title") {
+        return a.title.localeCompare(b.title, "ja") ||
+          b.savedAt.localeCompare(a.savedAt);
+      }
+      return bookmarkSort === "old" ?
+        a.savedAt.localeCompare(b.savedAt) :
+        b.savedAt.localeCompare(a.savedAt);
+    });
+}
+function resetBookmarkPagination() {
+  bookmarkShownCount = 5;
 }
 async function getActivePage() {
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
