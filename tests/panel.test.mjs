@@ -80,3 +80,22 @@ test("共通と個人の一覧を統合できる", () => {
   api.setState(baseState());
   assert.equal(api.entries().length, 3);
 });
+
+test("組織共通タブと「とじる」操作が実装されている", () => {
+  assert.match(source, /\["shared", "組織共通"\]/);
+  assert.match(source, /サイドパネルをとじる/);
+});
+test("閉じる処理は新しいChromeのAPIと従来の代替方式に対応する", async () => {
+  let closedWindowId = null;
+  context.chrome.sidePanel = { close: async ({ windowId }) => { closedWindowId = windowId; } };
+  context.chrome.windows = { getCurrent: async () => ({ id: 22 }) };
+  context.window = { close: () => { throw new Error("unexpected fallback"); } };
+  await vm.runInNewContext("closeSidePanel()", context);
+  assert.equal(closedWindowId, 22);
+
+  delete context.chrome.sidePanel;
+  let fallback = false;
+  context.window = { close: () => { fallback = true; } };
+  await vm.runInNewContext("closeSidePanel()", context);
+  assert.equal(fallback, true);
+});
