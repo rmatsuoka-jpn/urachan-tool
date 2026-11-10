@@ -173,7 +173,7 @@ test("表示機能選択制かつ重複のデータ管理タブを廃止", () =>
 
 test("配布アイコンのサイズ・拡張設定・ヘッダーロゴを検証", () => {
   const manifest = JSON.parse(readFileSync(path.join(here, "..", "manifest.json"), "utf8"));
-  assert.equal(manifest.version, "0.5.0");
+  assert.equal(manifest.version, "0.6.0");
   for (const size of [16, 32, 48, 128]) {
     const name = `icon${size}.png`;
     assert.equal(manifest.icons[String(size)], name);
