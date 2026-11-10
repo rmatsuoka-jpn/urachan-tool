@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "うらちゃんツール",
   "short_name": "うらちゃん",
-  "version": "0.5.0",
-  "description": "閉域環境で使える定型文・日付・ブックマーク・オフライン画像変換のサイドパネル。",
+  "version": "0.6.0",
+  "description": "閉域環境で使える定型文・日付・ブックマーク・オフライン画像変換・メモタスクのサイドパネル。",
   "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",
