@@ -19,7 +19,8 @@ const TAB_NAMES = [
 const FEATURES = [
   { id: "templates", name: "定型文", description: "登録した文章をワンクリックコピー" },
   { id: "dates", name: "日付ツール", description: "西暦・和暦変換と日付計算" },
-  { id: "bookmarks", name: "あとで見る", description: "現在のページを保存し、タグで整理" }
+  { id: "bookmarks", name: "あとで見る", description: "現在のページを保存し、タグで整理" },
+  { id: "images", name: "画像変換", description: "JPEG・PNG・HEICをリサイズ・圧縮・変換" }
 ];
 const ERAS = [
   { name: "令和", start: 2019, end: null },
@@ -699,6 +700,7 @@ function renderHome(main) {
   if (!state.visibleModules.includes(activeModule)) activeModule = state.visibleModules[0] || "templates";
   if (activeModule === "dates") return renderDateTools(main);
   if (activeModule === "bookmarks") return renderBookmarks(main);
+  if (activeModule === "images") return window.UraImageTools.render(main);
   main.append(...heading("定型文をコピー", "使いたい文章を押すだけでコピーできます。"));
   const search = el("input", {
     type: "search", class: "search", value: queryText,
@@ -1382,7 +1384,7 @@ function renderSettings(main) {
         if (hint) hint.textContent = "あと" + (5 - versionTapCount) + "回で開発者モード";
       }
     }
-  }, "うらちゃんツール v0.4.0");
+  }, "うらちゃんツール v0.5.0");
   main.append(version, el("div", { id: "developer-hint", class: "dev-hint" }));
   main.append(helpPopup("データはこのPCのChromeプロファイルに保存されます。共用PCでは他の利用者から見える可能性があります。"));
 }

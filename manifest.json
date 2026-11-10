@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "うらちゃんツール",
   "short_name": "うらちゃん",
-  "version": "0.4.0",
-  "description": "閉域環境で使える定型文コピー・日付ツール・タグ付きブックマークのサイドパネル。",
+  "version": "0.5.0",
+  "description": "閉域環境で使える定型文・日付・ブックマーク・オフライン画像変換のサイドパネル。",
   "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",
@@ -30,5 +30,8 @@
     "32": "icon32.png",
     "48": "icon48.png",
     "128": "icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }
