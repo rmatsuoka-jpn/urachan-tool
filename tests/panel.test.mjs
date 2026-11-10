@@ -171,9 +171,9 @@ test("表示機能選択制かつ重複のデータ管理タブを廃止", () =>
 });
 
 
-test("配布アイコンのサイズ・拡張設定・ヘッダーロゴを検証", () => {
+test("配布アイコン・拡張設定・簡素化したヘッダーを検証", () => {
   const manifest = JSON.parse(readFileSync(path.join(here, "..", "manifest.json"), "utf8"));
-  assert.equal(manifest.version, "0.6.0");
+  assert.equal(manifest.version, "0.6.1");
   for (const size of [16, 32, 48, 128]) {
     const name = `icon${size}.png`;
     assert.equal(manifest.icons[String(size)], name);
@@ -183,7 +183,13 @@ test("配布アイコンのサイズ・拡張設定・ヘッダーロゴを検�
     assert.equal(image.readUInt32BE(16), size);
     assert.equal(image.readUInt32BE(20), size);
   }
-  assert.match(source, /src: "icon32.png"/);
+  const header = source.split("function renderHeader() {")[1].split("function renderList(")[0];
+  assert.doesNotMatch(header, /brand-icon|うらちゃんツール/);
+  assert.match(header, /"icon-only-button"/);
+  assert.match(header, /title: "設定", "aria-label": "設定"/);
+  assert.match(header, /"× とじる"/);
+  assert.match(header, /feature-nav-prev/);
+  assert.match(header, /feature-nav-next/);
 });
 
 test("保存URLはhttp/httpsだけを許可し認証情報を含むURLを拒否", () => {

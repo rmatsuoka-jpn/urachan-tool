@@ -52,6 +52,8 @@ const DEFAULT_STATE = {
 let state = structuredClone(DEFAULT_STATE);
 let view = "home";
 let activeModule = "templates";
+let featureNavScrollLeft = 0;
+let updateFeatureNavArrows = () => {};
 let selectedSharedSetId = null;
 let pendingSharedImport = null;
 let devApplyLocally = false;
@@ -624,29 +626,40 @@ async function closeSidePanel() {
 
 function renderHeader() {
   const header = el("header", { class: "header" });
-  const title = row(el("img", { class: "brand-icon", src: "icon32.png", alt: "" }), text("span", "うらちゃんツール", "brand"));
-  const backTarget = view === "settings" ? "home"
-    : view === "shared-details" ? "shared-manager"
-    : view === "personal-editor" || view === "bookmark-presets"
-      || view === "bookmark-tags" ? "home"
-    : view === "bookmark-preset-editor" ? "bookmark-presets" : "settings";
-  const back = view === "home"
-    ? btn("⚙ 設定", "settings-button", () => navigate("settings"))
-    : btn("← 戻る", "settings-button", () => navigate(backTarget));
-  back.className = "settings-button";
   const close = el("button", {
     type: "button", class: "settings-button close-button",
     title: "サイドパネルをとじる", "aria-label": "サイドパネルをとじる",
     onClick: () => { void closeSidePanel(); }
   }, "× とじる");
-  header.append(el("div", { class: "topbar" }, [title,
-    el("div", { class: "header-actions" }, [back, close])]));
+  const actions = el("div", { class: "header-actions" });
+  const toolbar = el("div", { class: view === "home" ? "topbar home-topbar" : "topbar" });
+  if (view === "home") {
+    actions.append(el("button", {
+      type: "button", class: "settings-button icon-only-button",
+      title: "設定", "aria-label": "設定",
+      onClick: () => navigate("settings")
+    }, "⚙"));
+  } else {
+    const backTarget = view === "settings" ? "home"
+      : view === "shared-details" ? "shared-manager"
+      : view === "personal-editor" || view === "bookmark-presets"
+        || view === "bookmark-tags" ? "home"
+      : view === "bookmark-preset-editor" ? "bookmark-presets" : "settings";
+    toolbar.append(btn("← 戻る", "settings-button", () => navigate(backTarget)));
+  }
+  actions.append(close);
+  toolbar.append(actions);
+  header.append(toolbar);
+
+  updateFeatureNavArrows = () => {};
   if (view === "home") {
     const shown = FEATURES.filter((m) => state.visibleModules.includes(m.id));
+    const frame = el("div", { class: "feature-nav-frame" });
     const nav = el("nav", { class: "mode-nav feature-nav", "aria-label": "表示する機能" });
     if (shown.length > 1) {
       shown.forEach((module) => {
         const button = btn(module.name, activeModule === module.id ? "active" : "", () => {
+          featureNavScrollLeft = nav.scrollLeft;
           activeModule = module.id;
           render();
         });
@@ -654,7 +667,34 @@ function renderHeader() {
       });
     }
     nav.append(btn("＋ 機能", "feature-add", () => navigate("feature-settings")));
-    header.append(nav);
+    const prev = el("button", {
+      type: "button", class: "feature-nav-arrow feature-nav-prev",
+      title: "前の機能を表示", "aria-label": "前の機能を表示",
+      onClick: () => nav.scrollBy({ left: -Math.max(nav.clientWidth * 0.8, 120), behavior: "smooth" })
+    }, "‹");
+    const next = el("button", {
+      type: "button", class: "feature-nav-arrow feature-nav-next",
+      title: "次の機能を表示", "aria-label": "次の機能を表示",
+      onClick: () => nav.scrollBy({ left: Math.max(nav.clientWidth * 0.8, 120), behavior: "smooth" })
+    }, "›");
+    const refreshArrows = () => {
+      if (!nav.isConnected) return;
+      const overflow = nav.scrollWidth > nav.clientWidth + 2;
+      prev.hidden = !overflow || nav.scrollLeft <= 2;
+      next.hidden = !overflow || nav.scrollLeft + nav.clientWidth >= nav.scrollWidth - 2;
+    };
+    nav.addEventListener("scroll", () => {
+      featureNavScrollLeft = nav.scrollLeft;
+      refreshArrows();
+    }, { passive: true });
+    frame.append(nav, prev, next);
+    header.append(frame);
+    updateFeatureNavArrows = refreshArrows;
+    requestAnimationFrame(() => {
+      if (!nav.isConnected) return;
+      nav.scrollLeft = featureNavScrollLeft;
+      refreshArrows();
+    });
   }
   return header;
 }
@@ -1390,7 +1430,7 @@ function renderSettings(main) {
         if (hint) hint.textContent = "あと" + (5 - versionTapCount) + "回で開発者モード";
       }
     }
-  }, "うらちゃんツール v0.6.0");
+  }, "うらちゃんツール v0.6.1");
   main.append(version, el("div", { id: "developer-hint", class: "dev-hint" }));
   main.append(helpPopup("データはこのPCのChromeプロファイルに保存されます。共用PCでは他の利用者から見える可能性があります。"));
 }
@@ -1776,6 +1816,7 @@ async function start() {
     notify("保存データを読み込めませんでした。");
   }
   render();
+  window.addEventListener("resize", () => updateFeatureNavArrows());
   // ブラウザのタブを切り替えた場合も、現在のページの保存状態を更新する。
   const refreshBookmarkPreviewIfVisible = () => {
     if (view !== "home" || activeModule !== "bookmarks") return;
