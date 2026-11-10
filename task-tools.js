@@ -90,10 +90,11 @@
       hour: "2-digit", minute: "2-digit"
     });
   }
-  function today() {
-    const d = new Date();
+  function localDate(when) {
+    const d = when instanceof Date ? when : new Date(when);
     return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
   }
+  function today() { return localDate(new Date()); }
   function E(tag, attributes = {}, children = []) {
     const node = document.createElement(tag);
     for (const [name, value] of Object.entries(attributes)) {
@@ -354,7 +355,7 @@
     return tickets.filter((ticket) => {
       if (options.scope === "knowledge" && (!ticket.knowledge || !ticket.completedAt)) return false;
       if (options.scope === "done" && !ticket.completedAt) return false;
-      const date = ticket.createdAt.slice(0, 10);
+      const date = localDate(ticket.createdAt);
       if (options.from && date < options.from) return false;
       if (options.to && date > options.to) return false;
       return true;
