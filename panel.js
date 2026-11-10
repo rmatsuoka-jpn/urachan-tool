@@ -621,7 +621,8 @@ function renderHeader() {
   const title = row(el("img", { class: "brand-icon", src: "icon32.png", alt: "" }), text("span", "うらちゃんツール", "brand"));
   const backTarget = view === "settings" ? "home"
     : view === "shared-details" ? "shared-manager"
-    : view === "personal-editor" || view === "bookmark-presets" ? "home"
+    : view === "personal-editor" || view === "bookmark-presets"
+      || view === "bookmark-tags" ? "home"
     : view === "bookmark-preset-editor" ? "bookmark-presets" : "settings";
   const back = view === "home"
     ? btn("⚙ 設定", "settings-button", () => navigate("settings"))
@@ -725,66 +726,154 @@ function renderHome(main) {
 }
 
 
-function refreshCurrentPagePreview(preview) {
+
+function refreshCurrentPagePreview(preview, status = null) {
   getActivePage().then((page) => {
-    if (preview.isConnected) {
-      preview.textContent = page.title;
-      preview.title = page.url;
+    if (!preview.isConnected) return;
+    preview.textContent = page.title;
+    preview.title = page.url;
+    if (status && status.isConnected) {
+      const saved = state.bookmarks.find((item) => item.url === page.url);
+      status.replaceChildren();
+      if (saved) {
+        status.append(text("span", "✓ 保存済み", "bookmark-saved-badge"));
+        if (saved.tags.length) {
+          status.append(text("span", saved.tags.join("・"), "bookmark-current-tags"));
+        }
+      }
     }
   }).catch((error) => {
-    if (preview.isConnected) {
-      preview.textContent = error.message || "ページを取得できませんでした。";
-      preview.title = "";
+    if (!preview.isConnected) return;
+    preview.textContent = error.message || "ページを取得できませんでした。";
+    preview.title = "";
+    if (status && status.isConnected) status.replaceChildren();
+  });
+}
+function bookmarkSelect(values, selectedValue, label, onChange) {
+  const select = el("select", {
+    class: "bookmark-filter-select", "aria-label": label,
+    title: label, onChange: (event) => onChange(event.target.value)
+  });
+  values.forEach(([value, labelText]) => {
+    select.append(el("option", { value }, labelText));
+  });
+  select.value = selectedValue;
+  return select;
+}
+function renderBookmarkFilters(main) {
+  const controls = el("div", { class: "bookmark-filter-row" });
+  controls.append(btn(bookmarkFavoriteOnly ? "★" : "☆",
+    "bookmark-filter-favorite" + (bookmarkFavoriteOnly ? " active" : ""),
+    () => { bookmarkFavoriteOnly = !bookmarkFavoriteOnly; resetBookmarkPagination(); render(); },
+    { title: "お気に入りだけを表示", "aria-label": "お気に入りだけを表示",
+      "aria-pressed": String(bookmarkFavoriteOnly) }));
+  const tags = [["all", "タグ：全件"], ["untagged", "未整理"],
+    ...allBookmarkTags().map((name) => ["tag:" + name, name])];
+  controls.append(bookmarkSelect(tags, bookmarkTagFilter, "タグで絞り込み", (value) => {
+    bookmarkTagFilter = value; resetBookmarkPagination(); render();
+  }));
+  controls.append(bookmarkSelect([
+    ["all", "日付：全件"], ["today", "今日"], ["7", "7日以内"],
+    ["30", "30日以内"], ["range", "期間指定"]
+  ], bookmarkDateFilter, "保存日で絞り込み", (value) => {
+    bookmarkDateFilter = value; resetBookmarkPagination(); render();
+  }));
+  controls.append(bookmarkSelect([
+    ["new", "新しい順"], ["old", "古い順"],
+    ["favorite", "★優先"], ["title", "タイトル順"]
+  ], bookmarkSort, "並び替え", (value) => {
+    bookmarkSort = value; resetBookmarkPagination(); render();
+  }));
+  main.append(controls);
+  if (bookmarkDateFilter === "range") {
+    const dateRow = el("div", { class: "bookmark-date-range" });
+    const first = el("input", {
+      type: "date", value: bookmarkDateFrom,
+      "aria-label": "保存日の開始日", onChange: (ev) => {
+        bookmarkDateFrom = ev.target.value; resetBookmarkPagination(); render();
+      }
+    });
+    const last = el("input", {
+      type: "date", value: bookmarkDateTo,
+      "aria-label": "保存日の終了日", onChange: (ev) => {
+        bookmarkDateTo = ev.target.value; resetBookmarkPagination(); render();
+      }
+    });
+    dateRow.append(first, text("span", "〜"), last);
+    main.append(dateRow);
+    if (bookmarkDateFrom && bookmarkDateTo && bookmarkDateFrom > bookmarkDateTo) {
+      main.append(text("p", "開始日が終了日より後になっています。", "bookmark-range-hint"));
     }
-  });
+  }
 }
-function bookmarkFilterButtons() {
-  const filter = el("div", { class: "bookmark-filters", "aria-label": "タグによる絞り込み" });
-  const names = [["all", "すべて"]];
-  if (state.bookmarks.some((item) => item.tags.length === 0)) names.push(["untagged", "未整理"]);
-  allBookmarkTags().forEach((tag) => names.push(["tag:" + tag, tag]));
-  names.forEach(([id, label]) => {
-    filter.append(btn(label, bookmarkTagFilter === id ? "active" : "", () => {
-      bookmarkTagFilter = id;
-      render();
-    }));
-  });
-  return filter;
-}
-function renderBookmarkRows(container, count) {
+function renderBookmarkRows(container, count, more) {
   container.replaceChildren();
   const matches = visibleBookmarks();
-  count.textContent = matches.length + "件表示";
+  count.textContent = matches.length ? "保存済み " +
+    Math.min(matches.length, bookmarkShownCount) + " / " + matches.length + "件" :
+    "該当 0件";
+  more.replaceChildren();
   if (!matches.length) {
     container.append(el("div", { class: "empty" }, [
       text("strong", state.bookmarks.length ? "該当するページはありません" : "まだ保存したページがありません"),
-      text("p", state.bookmarks.length ? "タグや検索語を変えてください。" : "上の保存ボタンから登録できます。")
+      text("p", state.bookmarks.length ? "検索条件を変えてください。" : "上の保存ボタンから登録できます。")
     ]));
     return;
   }
-  matches.forEach((item) => {
+  matches.slice(0, bookmarkShownCount).forEach((item) => {
     const card = el("section", { class: "bookmark-item" });
-    const summary = el("div", { class: "bookmark-item-head" }, [
-      el("button", {
-        type: "button", class: "bookmark-title",
-        title: "新しいタブで開く",
-        onClick: () => { void openSavedBookmark(item.url); }
-      }, item.title),
-      btn(editingBookmarkId === item.id ? "閉じる" : "タグ編集", "button-secondary bookmark-edit-button", () => {
-        if (editingBookmarkId === item.id) editingBookmarkId = null;
-        else {
-          editingBookmarkId = item.id;
-          bookmarkTitleDraft = item.title;
-          bookmarkNewTagDraft = "";
-        }
-        renderBookmarkRows(container, count);
-      })
+    const head = el("div", { class: "bookmark-item-head" });
+    head.append(btn(item.favorite ? "★" : "☆",
+      "bookmark-star" + (item.favorite ? " active" : ""),
+      () => {
+        try {
+          toggleBookmarkFavorite(item.id);
+          renderBookmarkRows(container, count, more);
+        } catch (error) { notify(error.message); }
+      }, { title: item.favorite ? "お気に入りを解除" : "お気に入りに登録",
+        "aria-label": item.title + (item.favorite ? "のお気に入りを解除" : "をお気に入りに登録"),
+        "aria-pressed": String(Boolean(item.favorite)) }));
+    const open = el("button", {
+      type: "button", class: "bookmark-open",
+      title: "新しいタブで開く",
+      "aria-label": item.title + "を新しいタブで開く",
+      onClick: () => { void openSavedBookmark(item.url); }
+    }, [
+      text("span", item.title, "bookmark-open-title"),
+      text("span", "↗", "bookmark-external")
     ]);
-    card.append(summary);
-    const chips = el("div", { class: "bookmark-tags" },
-      item.tags.length ? item.tags.map((tag) => text("span", tag, "bookmark-tag")) :
-        [text("span", "未整理", "bookmark-tag subtle")]);
-    card.append(chips);
+    head.append(open);
+    const menu = el("details", { class: "bookmark-item-menu" });
+    menu.append(el("summary", {
+      class: "bookmark-menu-trigger", "aria-label": item.title + "の操作",
+      title: "操作メニュー"
+    }, "⋯"));
+    menu.append(el("div", { class: "bookmark-menu-items" }, [
+      btn("タグ・タイトル編集", "button-plain", () => {
+        editingBookmarkId = item.id;
+        bookmarkTitleDraft = item.title;
+        bookmarkNewTagDraft = "";
+        renderBookmarkRows(container, count, more);
+      }),
+      btn("URLをコピー", "button-plain", () => {
+        menu.open = false;
+        void copyText(item.url);
+      }),
+      btn("削除", "button-plain bookmark-menu-danger", () => {
+        if (!confirm("「" + item.title + "」を削除しますか？")) return;
+        state.bookmarks = state.bookmarks.filter((entry) => entry.id !== item.id);
+        if (editingBookmarkId === item.id) editingBookmarkId = null;
+        persist(); render();
+        notify("ブックマークを削除しました。");
+      })
+    ]));
+    head.append(menu);
+    card.append(head);
+    const meta = el("div", { class: "bookmark-meta" }, [
+      text("time", "保存 " + formatBookmarkTimestamp(item.savedAt), "bookmark-date"),
+      text("span", item.tags.length ? item.tags.join("・") : "未整理", "bookmark-meta-tags")
+    ]);
+    card.append(meta);
     if (editingBookmarkId === item.id) {
       const editor = el("div", { class: "bookmark-inline-editor" }, [
         text("div", "タグを付け外す", "bookmark-subheading")
@@ -793,7 +882,7 @@ function renderBookmarkRows(container, count) {
       allBookmarkTags().forEach((tag) => {
         const selected = item.tags.includes(tag);
         tags.append(btn((selected ? "✓ " : "＋ ") + tag, selected ? "active" : "", () => {
-          try { toggleBookmarkTag(item.id, tag); render(); }
+          try { toggleBookmarkTag(item.id, tag); renderBookmarkRows(container, count, more); }
           catch (error) { notify(error.message); }
         }));
       });
@@ -810,7 +899,8 @@ function renderBookmarkRows(container, count) {
             const tag = addBookmarkTagDefinition(bookmarkNewTagDraft);
             if (!item.tags.includes(tag)) toggleBookmarkTag(item.id, tag);
             bookmarkNewTagDraft = "";
-            render();
+            renderBookmarkRows(container, count, more);
+            notify("タグを追加しました。");
           } catch (error) { notify(error.message); }
         })
       ]));
@@ -827,62 +917,125 @@ function renderBookmarkRows(container, count) {
           if (!next) return notify("タイトルを入力してください。");
           item.title = next;
           persist();
-          renderBookmarkRows(container, count);
+          renderBookmarkRows(container, count, more);
           notify("タイトルを変更しました。");
         })
       ]));
-      editor.append(el("div", { class: "bookmark-editor-actions" }, [
-        btn("削除", "button-danger", () => {
-          if (!confirm("「" + item.title + "」を削除しますか？")) return;
-          state.bookmarks = state.bookmarks.filter((entry) => entry.id !== item.id);
-          editingBookmarkId = null;
-          persist();
-          render();
-          notify("ブックマークを削除しました。");
-        }),
-        btn("完了", "button-primary", () => {
-          editingBookmarkId = null;
-          renderBookmarkRows(container, count);
-        })
-      ]));
+      editor.append(btn("編集を閉じる", "button-secondary full", () => {
+        editingBookmarkId = null;
+        renderBookmarkRows(container, count, more);
+      }));
       card.append(editor);
     }
     container.append(card);
   });
+  if (matches.length > bookmarkShownCount) {
+    more.append(btn("もっと表示する（残り" + (matches.length - bookmarkShownCount) + "件）",
+      "button-secondary full bookmark-more", () => {
+        bookmarkShownCount += 5;
+        renderBookmarkRows(container, count, more);
+      }));
+  }
 }
 function renderBookmarks(main) {
   main.append(...heading("あとで見る"));
   const preview = text("div", "現在のページを確認しています…", "bookmark-current-title");
   preview.id = "bookmark-current";
+  const status = el("div", { id: "bookmark-current-status", class: "bookmark-current-status" });
   const saveSection = el("section", { class: "card bookmark-save-card" }, [
-    text("div", "現在開いているページ", "bookmark-subheading"),
-    preview
+    preview, status
   ]);
   const buttons = el("div", { class: "bookmark-save-buttons" });
   state.bookmarkPresets.forEach((preset) => {
-    buttons.append(btn("＋ " + preset.label, "button-primary", () => { void saveCurrentBookmark(preset.id); },
-      { title: preset.tags.join("、") + " のタグで保存" }));
+    buttons.append(btn("＋ " + preset.label, "button-primary", () => {
+      void saveCurrentBookmark(preset.id);
+    }, { title: preset.tags.join("、") + " のタグで保存" }));
   });
   saveSection.append(buttons);
   saveSection.append(el("div", { class: "bookmark-save-footer" }, [
-    btn("保存ボタンを編集", "button-plain", () => navigate("bookmark-presets")),
-    btn("ページ更新", "button-plain", () => refreshCurrentPagePreview(preview))
+    btn("保存ボタンの設定", "button-plain", () => navigate("bookmark-presets")),
+    btn("タグ管理", "button-plain", () => navigate("bookmark-tags")),
+    btn("更新", "button-plain", () => refreshCurrentPagePreview(preview, status))
   ]));
   main.append(saveSection);
-  refreshCurrentPagePreview(preview);
-  main.append(text("h2", "保存済みページ", "section-title"), bookmarkFilterButtons());
+  refreshCurrentPagePreview(preview, status);
   const search = el("input", {
-    type: "search", class: "search", value: bookmarkQuery,
-    placeholder: "タイトル・URL・タグで検索", "aria-label": "保存ページを検索"
+    type: "search", class: "search bookmark-search", value: bookmarkQuery,
+    placeholder: "保存済みページを検索", "aria-label": "保存ページを検索"
   });
   const container = el("div", { class: "bookmark-list" });
-  const count = text("div", "", "counter");
+  const count = text("div", "", "bookmark-results-count");
+  const more = el("div", { class: "bookmark-more-container" });
   search.addEventListener("input", () => {
     bookmarkQuery = search.value;
-    renderBookmarkRows(container, count);
+    resetBookmarkPagination();
+    renderBookmarkRows(container, count, more);
   });
-  main.append(search, container, count);
-  renderBookmarkRows(container, count);
+  main.append(search);
+  renderBookmarkFilters(main);
+  main.append(count, container, more);
+  renderBookmarkRows(container, count, more);
+}
+function renderBookmarkTags(main) {
+  main.append(...heading("タグ管理", "タグ名の変更・削除は全ブックマークと保存ボタンに反映されます。"));
+  const tags = allBookmarkTags();
+  if (!tags.length) main.append(text("p", "登録されたタグはありません。", "help"));
+  tags.forEach((tag) => {
+    const count = bookmarkTagUsage(tag);
+    const section = el("section", { class: "card bookmark-tag-manager-item" });
+    const info = el("div", { class: "bookmark-tag-manager-row" }, [
+      el("div", { class: "bookmark-preset-info" }, [
+        text("strong", tag),
+        text("small", count + "件のブックマークで使用中")
+      ])
+    ]);
+    info.append(btn(editingTagName === tag ? "閉じる" : "名前変更", "button-secondary", () => {
+      editingTagName = editingTagName === tag ? null : tag;
+      render();
+    }));
+    info.append(btn("削除", "button-danger", () => {
+      const single = state.bookmarkPresets.filter((p) =>
+        p.tags.length === 1 && p.tags[0] === tag).map((p) => p.label);
+      if (single.length) {
+        notify("保存ボタン「" + single.join("、") + "」のタグを先に変更してください。");
+        return;
+      }
+      if (!confirm("タグ「" + tag + "」を削除しますか？\n" + count +
+        "件のブックマークと保存ボタンからタグを外します。ブックマーク自体は削除しません。")) return;
+      try {
+        deleteBookmarkTag(tag);
+        editingTagName = null;
+        render();
+        notify("タグを削除しました。");
+      } catch (error) { notify(error.message); }
+    }));
+    section.append(info);
+    if (editingTagName === tag) {
+      const name = el("input", {
+        type: "text", value: tag, maxlength: MAX_TAG_LENGTH,
+        "aria-label": tag + "の新しい名前"
+      });
+      const submit = () => {
+        const value = name.value.trim();
+        if (!value) return notify("タグ名を入力してください。");
+        if (value !== tag && allBookmarkTags().includes(value) &&
+          !confirm("「" + value + "」は既に存在します。このタグに統合しますか？")) return;
+        try {
+          renameBookmarkTag(tag, value);
+          editingTagName = null;
+          render();
+          notify("タグ名を更新しました。");
+        } catch (error) { notify(error.message); }
+      };
+      name.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") submit();
+      });
+      section.append(el("div", { class: "bookmark-new-tag" }, [
+        name, btn("変更", "button-primary", submit)
+      ]));
+    }
+    main.append(section);
+  });
 }
 function openBookmarkPresetEditor(id) {
   const saved = state.bookmarkPresets.find((preset) => preset.id === id);
@@ -1557,6 +1710,7 @@ function render() {
   else if (view === "backup-manager") renderBackupManager(main);
   else if (view === "personal-editor") renderPersonalEditor(main);
   else if (view === "bookmark-presets") renderBookmarkPresets(main);
+  else if (view === "bookmark-tags") renderBookmarkTags(main);
   else if (view === "bookmark-preset-editor") renderBookmarkPresetEditor(main);
   else if (view === "developer") renderDeveloper(main);
   if (view !== "home") {
@@ -1606,6 +1760,19 @@ async function start() {
     notify("保存データを読み込めませんでした。");
   }
   render();
+  // ブラウザのタブを切り替えた場合も、現在のページの保存状態を更新する。
+  const refreshBookmarkPreviewIfVisible = () => {
+    if (view !== "home" || activeModule !== "bookmarks") return;
+    const preview = document.getElementById("bookmark-current");
+    const status = document.getElementById("bookmark-current-status");
+    if (preview) refreshCurrentPagePreview(preview, status);
+  };
+  chrome.tabs?.onActivated?.addListener(refreshBookmarkPreviewIfVisible);
+  chrome.tabs?.onUpdated?.addListener((_tabId, changes) => {
+    if (changes.url || changes.title || changes.status === "complete") {
+      refreshBookmarkPreviewIfVisible();
+    }
+  });
 }
 
 start();
