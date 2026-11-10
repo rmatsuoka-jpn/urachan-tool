@@ -10,7 +10,27 @@ on:
       - panel.html
       - panel.css
       - panel.js
+      - image-tools.js
+      - vendor/**
+      - LICENSE
+      - THIRD_PARTY_NOTICES.md
+      - README.md
       - 'icon*.png'
+      - tests/**
+      - .github/workflows/release-extension.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - manifest.json
+      - background.js
+      - panel.html
+      - panel.css
+      - panel.js
+      - image-tools.js
+      - vendor/**
+      - LICENSE
+      - THIRD_PARTY_NOTICES.md
       - tests/**
       - .github/workflows/release-extension.yml
   workflow_dispatch:
@@ -32,7 +52,9 @@ jobs:
           set -euo pipefail
           node --check background.js
           node --check panel.js
-          node --test tests/panel.test.mjs
+          node --check image-tools.js
+          node --check vendor/heic/libheif-bundle.mjs
+          node --test tests/*.test.mjs
           node -e 'const fs=require("node:fs"); const m=require("./manifest.json"); if(m.manifest_version!==3 || m.side_panel?.default_path!=="panel.html") process.exit(1); for(const n of [16,32,48,128]) {const f="icon"+n+".png"; if(m.icons?.[n]!==f || m.action?.default_icon?.[n]!==f || !fs.existsSync(f)) process.exit(1);}'
 
       - name: Determine version
@@ -51,13 +73,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          zip -j -9 "dist/urachan-tool-v${VERSION}.zip" \
-            manifest.json background.js panel.html panel.css panel.js \
+          files=(
+            manifest.json background.js panel.html panel.css panel.js image-tools.js
             icon16.png icon32.png icon48.png icon128.png
+            LICENSE THIRD_PARTY_NOTICES.md
+            vendor/heic/libheif-bundle.mjs vendor/heic/LICENSE vendor/heic/GPL-3.0.txt
+            vendor/jszip/jszip.min.js vendor/jszip/LICENSE-MIT.txt
+          )
+          zip -9 "dist/urachan-tool-v${VERSION}.zip" "${files[@]}"
 
-          # Fail if the archive contains even one unexpected file.
+          # ZIP内のvendor/構造と第三者ライセンスを維持すること。
           diff -u \
-            <(printf '%s\n' manifest.json background.js panel.html panel.css panel.js icon16.png icon32.png icon48.png icon128.png | sort) \
+            <(printf '%s\n' "${files[@]}" | sort) \
             <(unzip -Z1 "dist/urachan-tool-v${VERSION}.zip" | sort)
 
           unzip -t "dist/urachan-tool-v${VERSION}.zip"
@@ -74,6 +101,7 @@ jobs:
           retention-days: 30
 
       - name: Publish versioned GitHub Release
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -94,4 +122,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "うらちゃんツール ${tag}（デモ版）" \
-            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。動作に必要なソース5ファイルとアイコン4ファイルだけを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
+            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。画像変換用ファイルと第三者ライセンスを含む17ファイルを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
