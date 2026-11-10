@@ -14,12 +14,13 @@ const context = {
   document: { getElementById: () => ({}) },
   chrome: { storage: { local: { set: async () => {} } } },
   structuredClone,
+  URL,
   console,
   setTimeout,
   clearTimeout,
   crypto: { randomUUID: () => "123e4567-e89b-42d3-a456-426614174000" }
 };
-vm.runInNewContext(source + "\nglobalThis.testsApi = {validateShared,validatePersonal,validateBackup,createBackup,upsertShared,entries,visibleEntries,isSharedEnabled,setSharedEnabled,removeSharedSet,yearToJapanese,japaneseToYear,calculateDate,getState:()=>state,setState:(v)=>{state=v}};", context);
+vm.runInNewContext(source + "\nglobalThis.testsApi = {validateShared,validatePersonal,validateBackup,createBackup,upsertShared,entries,visibleEntries,isSharedEnabled,setSharedEnabled,removeSharedSet,yearToJapanese,japaneseToYear,calculateDate,normalizeBookmarkUrl,validateBookmarkData,bookmarkDataSnapshot,storeBookmark,toggleBookmarkTag,addBookmarkTagDefinition,allBookmarkTags,visibleBookmarks,getActivePage,openSavedBookmark,getState:()=>state,setState:(v)=>{state=v},setBookmarkFilter:(v)=>{bookmarkTagFilter=v},setBookmarkQuery:(v)=>{bookmarkQuery=v}};", context);
 const api = context.testsApi;
 const shared = {
   format: "urachan-shared", version: 1,
@@ -35,7 +36,11 @@ const baseState = () => ({
       { id: "removed", title: "削除対象", text: "消える" }
     ]
   }],
-  favoriteKeys: ["p:p1", "s:dept-a:thankyou", "s:dept-a:removed"]
+  favoriteKeys: ["p:p1", "s:dept-a:thankyou", "s:dept-a:removed"],
+  bookmarks: [],
+  bookmarkPresets: [{ id: "mail", label: "メール", tags: ["メール"] },
+    { id: "web", label: "Web", tags: ["Web"] }],
+  bookmarkTags: ["メール", "Web"]
 });
 
 test("共通JSONを正しく読み取る", () => {
@@ -168,7 +173,7 @@ test("表示機能選択制かつ重複のデータ管理タブを廃止", () =>
 
 test("配布アイコンのサイズ・拡張設定・ヘッダーロゴを検証", () => {
   const manifest = JSON.parse(readFileSync(path.join(here, "..", "manifest.json"), "utf8"));
-  assert.equal(manifest.version, "0.2.1");
+  assert.equal(manifest.version, "0.3.0");
   for (const size of [16, 32, 48, 128]) {
     const name = `icon${size}.png`;
     assert.equal(manifest.icons[String(size)], name);
@@ -179,4 +184,99 @@ test("配布アイコンのサイズ・拡張設定・ヘッダーロゴを検�
     assert.equal(image.readUInt32BE(20), size);
   }
   assert.match(source, /src: "icon32.png"/);
+});
+
+test("保存URLはhttp/httpsだけを許可し認証情報を含むURLを拒否", () => {
+  assert.equal(api.normalizeBookmarkUrl("http://intranet.local/mail?id=10"),
+    "http://intranet.local/mail?id=10");
+  assert.throws(() => api.normalizeBookmarkUrl("file:///c:/test.html"));
+  assert.throws(() => api.normalizeBookmarkUrl("javascript:alert(1)"));
+  assert.throws(() => api.normalizeBookmarkUrl("https://user:pass@intranet.local/mail"));
+  assert.throws(() => api.normalizeBookmarkUrl("not a URL"));
+});
+test("ワンクリック保存とURL重複時のタグ追加", () => {
+  api.setState(baseState());
+  const a = api.storeBookmark("https://garoon.local/mail?mid=103", "会議連絡", ["メール"]);
+  assert.equal(a.added, true);
+  const b = api.storeBookmark("https://garoon.local/mail?mid=103", "別タイトル", ["確認待ち","メール"]);
+  assert.equal(b.added, false);
+  assert.equal(b.newTags, 1);
+  const items = api.getState().bookmarks;
+  assert.equal(items.length, 1);
+  assert.equal(items[0].title, "会議連絡");
+  assert.equal(items[0].tags.join(","), "メール,確認待ち");
+});
+test("保存済みページのタグを追加・解除して絞り込める", () => {
+  api.setState(baseState());
+  api.setBookmarkFilter("all"); api.setBookmarkQuery("");
+  api.storeBookmark("https://garoon.local/message?mid=5", "会議資料", ["メール"]);
+  const item = api.getState().bookmarks[0];
+  const custom = api.addBookmarkTagDefinition("確認待ち");
+  api.toggleBookmarkTag(item.id, custom);
+  api.setBookmarkFilter("tag:確認待ち");
+  assert.equal(api.visibleBookmarks().length, 1);
+  api.toggleBookmarkTag(item.id, "確認待ち");
+  assert.equal(api.visibleBookmarks().length, 0);
+  api.setBookmarkFilter("untagged");
+  assert.equal(api.visibleBookmarks().length, 0);
+  api.toggleBookmarkTag(item.id, "メール");
+  assert.equal(api.visibleBookmarks().length, 1);
+  api.setBookmarkFilter("all"); api.setBookmarkQuery("会議");
+  assert.equal(api.visibleBookmarks().length, 1);
+  api.setBookmarkQuery("");
+});
+test("ブックマークの検証で重複URLや不正タグを拒否", () => {
+  api.setState(baseState());
+  api.storeBookmark("https://garoon.local/mail/20", "サンプル", ["メール"]);
+  const raw = JSON.parse(JSON.stringify(api.bookmarkDataSnapshot()));
+  assert.equal(api.validateBookmarkData(raw).items.length, 1);
+  raw.items.push({ ...raw.items[0], id: "different-id" });
+  assert.throws(() => api.validateBookmarkData(raw));
+  raw.items.pop();
+  raw.items[0].tags = ["メール", "メール"];
+  assert.throws(() => api.validateBookmarkData(raw));
+});
+test("バックアップに保存済みページと保存ボタン・タグ設定を含める", () => {
+  api.setState(baseState());
+  api.storeBookmark("https://garoon.local/mail?mid=55", "通達", ["メール"]);
+  api.getState().visibleModules = ["templates","bookmarks"];
+  api.getState().bookmarkPresets.push({
+    id: "check", label: "あとで確認", tags: ["メール", "確認待ち"]
+  });
+  const backup = JSON.parse(JSON.stringify(api.createBackup()));
+  assert.equal(backup.modules.bookmarks.items.length, 1);
+  assert.equal(backup.modules.bookmarks.presets.length, 3);
+  assert.equal(backup.modules.settings.visibleModules.includes("bookmarks"), true);
+  const validated = api.validateBackup(backup);
+  assert.equal(validated.bookmarks.items[0].title, "通達");
+  assert.equal(validated.bookmarks.presets[2].tags[1], "確認待ち");
+  delete backup.modules.bookmarks;
+  assert.equal(api.validateBackup(backup).bookmarks, null);
+});
+test("選択中タブのタイトル・URLだけを取得して新タブで開く", async () => {
+  let queryArgs, opened;
+  context.chrome.tabs = {
+    query: async (args) => {
+      queryArgs = args;
+      return [{ title: "朝のあいさつ音源の送付について",
+        url: "http://garoon.local/cgi-bin/cbgrn/grn.exe/mail?mid=99" }];
+    },
+    create: async (args) => { opened = args; }
+  };
+  const page = await api.getActivePage();
+  assert.equal(page.title, "朝のあいさつ音源の送付について");
+  assert.equal(queryArgs.active, true);
+  assert.equal(queryArgs.lastFocusedWindow, true);
+  await api.openSavedBookmark(page.url);
+  assert.equal(opened.active, true);
+  assert.equal(opened.url, page.url);
+});
+test("設定詳細画面のTOPボタンと編集画面の導線がある", () => {
+  assert.match(source, /TOPに戻る/);
+  assert.match(source, /function renderBookmarkPresetEditor/);
+  assert.match(source, /function renderBookmarkRows/);
+  assert.match(source, /function renderBookmarks/);
+  const manifest = JSON.parse(readFileSync(path.join(here, "..", "manifest.json"), "utf8"));
+  assert.equal(manifest.permissions.includes("tabs"), true);
+  assert.equal(manifest.host_permissions, undefined);
 });
