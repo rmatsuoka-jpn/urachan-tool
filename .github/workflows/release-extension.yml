@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - feature/bookmark-workflow-v0.4.0
     paths:
       - manifest.json
       - background.js
@@ -75,7 +74,6 @@ jobs:
           retention-days: 30
 
       - name: Publish versioned GitHub Release
-        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
