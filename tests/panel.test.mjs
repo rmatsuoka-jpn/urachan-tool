@@ -388,3 +388,28 @@ test("一覧は初期5件・もっと表示する5件単位、クリック領域
   assert.match(source, /"✓ 保存済み"/);
   assert.match(source, /"bookmark-tags"\) renderBookmarkTags/);
 });
+
+
+test("メモ・タスクが個人バックアップに含まれ、旧バックアップからの復元にも対応", () => {
+  const taskSource = readFileSync(path.join(here, "..", "task-tools.js"), "utf8");
+  context.window = {};
+  vm.runInNewContext(taskSource, context);
+  const ticket = JSON.parse(JSON.stringify(context.window.UraTaskTools.createTicket(
+    "電話問い合わせ", "担当部署へ確認", "2026-11-11T08:30:00.000Z", "sample-task"
+  )));
+  ticket.history.push({ id: "history-1", createdAt: "2026-11-11T08:45:00.000Z", text: "電話で回答" });
+  ticket.finalAnswer = "申請方法を案内";
+  const current = baseState();
+  current.tasks = [ticket];
+  current.visibleModules = ["templates", "tasks"];
+  api.setState(current);
+  const backup = JSON.parse(JSON.stringify(api.createBackup()));
+  assert.equal(backup.modules.tasks[0].history.length, 1);
+  const restored = api.validateBackup(backup);
+  assert.equal(restored.tasks[0].finalAnswer, "申請方法を案内");
+  assert.equal(restored.visibleModules.includes("tasks"), true);
+  delete backup.modules.tasks;
+  assert.equal(api.validateBackup(backup).tasks, null);
+  backup.modules.tasks = [{ id: "broken" }];
+  assert.throws(() => api.validateBackup(backup));
+});
