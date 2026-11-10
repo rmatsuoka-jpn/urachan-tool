@@ -10,7 +10,7 @@ const TAB_NAMES = [
   ["all", "すべて"],
   ["favorites", "★ お気に入り"],
   ["personal", "個人"],
-  ["shared", "共通"]
+  ["shared", "組織共通"]
 ];
 const DEFAULT_STATE = {
   version: 1,
@@ -241,15 +241,39 @@ function upsertShared(set) {
   removeOrphanSharedFavorites(set.id, set.items);
   persist();
 }
+async function closeSidePanel() {
+  // Chrome 141以降は公式APIで閉じ、未対応時はパネル内のwindow.close()を使います。
+  try {
+    if (typeof chrome.sidePanel?.close === "function"
+      && typeof chrome.windows?.getCurrent === "function") {
+      const currentWindow = await chrome.windows.getCurrent();
+      if (Number.isInteger(currentWindow?.id)) {
+        await chrome.sidePanel.close({ windowId: currentWindow.id });
+        return;
+      }
+    }
+  } catch (error) {
+    console.warn("サイドパネルを閉じるAPIを利用できませんでした。", error);
+  }
+  window.close();
+}
+
 function renderHeader() {
   const header = el("header", { class: "header" });
   const title = row(text("span", "▣", "brand-mark"), text("span", "うらちゃんツール", "brand"));
   const back = view === "home"
     ? btn("⚙ 設定", "settings-button", () => navigate("settings"))
     : btn("← 戻る", "settings-button", () => navigate(view === "settings" ? "home" : "settings"));
-  // 共通のボタンスタイルに合わせて枠だけ調整。
   back.className = "settings-button";
-  header.append(el("div", { class: "topbar" }, [title, back]));
+  const close = el("button", {
+    type: "button",
+    class: "settings-button close-button",
+    title: "サイドパネルをとじる",
+    "aria-label": "サイドパネルをとじる",
+    onClick: () => { void closeSidePanel(); }
+  }, "× とじる");
+  const controls = el("div", { class: "header-actions" }, [back, close]);
+  header.append(el("div", { class: "topbar" }, [title, controls]));
   if (state.displayMode === "advanced" && (view === "home" || view === "settings")) {
     const nav = el("nav", { class: "mode-nav", "aria-label": "拡張モードのメニュー" });
     const copy = btn("定型文", "", () => navigate("home"));
@@ -279,7 +303,7 @@ function renderList(container, count) {
   for (const entry of all) {
     const title = el("span", { class: "item-title" }, [
       entry.title,
-      entry.source === "shared" ? text("span", "共通", "source-tag") : null
+      entry.source === "shared" ? text("span", "組織共通", "source-tag") : null
     ]);
     const copy = el("button", {
       type: "button",
@@ -319,7 +343,7 @@ function renderHome(main) {
       type: "button", class: currentTab === key ? "active" : "",
       role: "tab", "aria-selected": String(currentTab === key),
       onClick: () => { currentTab = key; render(); }
-    }, label));
+    }, key === "favorites" ? [text("span", "★", "tab-star"), " お気に入り"] : label));
   });
   main.append(tabs);
   const list = el("div", { class: "list" });
@@ -406,7 +430,7 @@ function renderSettings(main) {
   modeBox.append(labelSimple, labelAdvanced);
   main.append(modeBox);
   const common = el("section", { class: "card" }, [
-    text("h2", "共通定型文を取り込む"),
+    text("h2", "組織共通定型文を取り込む"),
     text("p", "配布されたJSONファイルを選ぶだけで追加・更新できます。個人用の定型文は変更されません。")
   ]);
   common.append(attachJsonInput(async (data) => {
@@ -455,7 +479,7 @@ function renderSettings(main) {
     main.append(devBox);
   }
   const version = el("button", {
-    type: "button", class: "version", "aria-label": "バージョン 0.1.0",
+    type: "button", class: "version", "aria-label": "バージョン 0.1.1",
     onClick: () => {
       if (state.developerEnabled) return;
       const now = Date.now();
@@ -472,7 +496,7 @@ function renderSettings(main) {
         if (hint) hint.textContent = "あと" + (5 - versionTapCount) + "回で開発者モード";
       }
     }
-  }, "うらちゃんツール v0.1.0");
+  }, "うらちゃんツール v0.1.1");
   main.append(version, el("div", { id: "developer-hint", class: "dev-hint" }));
   main.append(text("p", "このPC内に保存されます。共用PCでは同じChromeプロファイルの利用者に内容が見える場合があります。", "info warning"));
 }
