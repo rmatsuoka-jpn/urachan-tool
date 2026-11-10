@@ -20,7 +20,7 @@ const context = {
   clearTimeout,
   crypto: { randomUUID: () => "123e4567-e89b-42d3-a456-426614174000" }
 };
-vm.runInNewContext(source + "\nglobalThis.testsApi = {validateShared,validatePersonal,validateBackup,createBackup,upsertShared,entries,visibleEntries,isSharedEnabled,setSharedEnabled,removeSharedSet,yearToJapanese,japaneseToYear,calculateDate,normalizeBookmarkUrl,validateBookmarkData,bookmarkDataSnapshot,storeBookmark,toggleBookmarkTag,addBookmarkTagDefinition,allBookmarkTags,visibleBookmarks,getActivePage,openSavedBookmark,getState:()=>state,setState:(v)=>{state=v},setBookmarkFilter:(v)=>{bookmarkTagFilter=v},setBookmarkQuery:(v)=>{bookmarkQuery=v}};", context);
+vm.runInNewContext(source + "\nglobalThis.testsApi = {validateShared,validatePersonal,validateBackup,createBackup,upsertShared,entries,visibleEntries,isSharedEnabled,setSharedEnabled,removeSharedSet,yearToJapanese,japaneseToYear,calculateDate,normalizeBookmarkUrl,validateBookmarkData,bookmarkDataSnapshot,storeBookmark,toggleBookmarkTag,addBookmarkTagDefinition,allBookmarkTags,visibleBookmarks,getActivePage,openSavedBookmark,renameBookmarkTag,deleteBookmarkTag,bookmarkTagUsage,toggleBookmarkFavorite,bookmarkDateMatches,formatBookmarkTimestamp,getState:()=>state,setState:(v)=>{state=v},setBookmarkFilter:(v)=>{bookmarkTagFilter=v},setBookmarkQuery:(v)=>{bookmarkQuery=v},setBookmarkFavoriteOnly:(v)=>{bookmarkFavoriteOnly=v},setBookmarkDateFilter:(v)=>{bookmarkDateFilter=v},setBookmarkDateRange:(from,to)=>{bookmarkDateFrom=from;bookmarkDateTo=to},setBookmarkSort:(v)=>{bookmarkSort=v},setBookmarkShownCount:(v)=>{bookmarkShownCount=v},getBookmarkShownCount:()=>bookmarkShownCount};", context);
 const api = context.testsApi;
 const shared = {
   format: "urachan-shared", version: 1,
@@ -173,7 +173,7 @@ test("表示機能選択制かつ重複のデータ管理タブを廃止", () =>
 
 test("配布アイコンのサイズ・拡張設定・ヘッダーロゴを検証", () => {
   const manifest = JSON.parse(readFileSync(path.join(here, "..", "manifest.json"), "utf8"));
-  assert.equal(manifest.version, "0.3.0");
+  assert.equal(manifest.version, "0.4.0");
   for (const size of [16, 32, 48, 128]) {
     const name = `icon${size}.png`;
     assert.equal(manifest.icons[String(size)], name);
@@ -279,4 +279,112 @@ test("設定詳細画面のTOPボタンと編集画面の導線がある", () =>
   const manifest = JSON.parse(readFileSync(path.join(here, "..", "manifest.json"), "utf8"));
   assert.equal(manifest.permissions.includes("tabs"), true);
   assert.equal(manifest.host_permissions, undefined);
+});
+
+test("★お気に入りの登録・解除と絞り込み", () => {
+  api.setState(baseState());
+  api.setBookmarkFavoriteOnly(false);
+  api.setBookmarkDateFilter("all");
+  api.setBookmarkFilter("all");
+  api.setBookmarkQuery("");
+  api.setBookmarkSort("new");
+  api.storeBookmark("https://grn.local/mail/1", "依頼", ["メール"]);
+  api.storeBookmark("https://grn.local/mail/2", "会議", ["メール"]);
+  const first = api.getState().bookmarks[0];
+  assert.equal(first.favorite, false);
+  assert.equal(api.toggleBookmarkFavorite(first.id), true);
+  api.setBookmarkFavoriteOnly(true);
+  assert.equal(api.visibleBookmarks().length, 1);
+  assert.equal(api.visibleBookmarks()[0].title, "会議");
+  assert.equal(api.toggleBookmarkFavorite(first.id), false);
+  assert.equal(api.visibleBookmarks().length, 0);
+  api.setBookmarkFavoriteOnly(false);
+});
+test("ブックマーク保存日の今日・7日・30日・期間指定を判定", () => {
+  const now = new Date("2026-11-10T12:00:00.000Z");
+  api.setBookmarkDateFilter("today");
+  assert.equal(api.bookmarkDateMatches("2026-11-10T08:30:00.000Z", now), true);
+  assert.equal(api.bookmarkDateMatches("2026-11-09T12:00:00.000Z", now), false);
+  api.setBookmarkDateFilter("7");
+  assert.equal(api.bookmarkDateMatches("2026-11-04T12:00:00.000Z", now), true);
+  assert.equal(api.bookmarkDateMatches("2026-11-03T12:00:00.000Z", now), false);
+  api.setBookmarkDateFilter("30");
+  assert.equal(api.bookmarkDateMatches("2026-10-12T12:00:00.000Z", now), true);
+  assert.equal(api.bookmarkDateMatches("2026-10-11T12:00:00.000Z", now), false);
+  api.setBookmarkDateFilter("range");
+  api.setBookmarkDateRange("2026-11-05", "2026-11-07");
+  assert.equal(api.bookmarkDateMatches("2026-11-07T12:00:00.000Z", now), true);
+  assert.equal(api.bookmarkDateMatches("2026-11-08T12:00:00.000Z", now), false);
+  api.setBookmarkDateRange("2026-11-05", "");
+  assert.equal(api.bookmarkDateMatches("2026-11-10T12:00:00.000Z", now), true);
+  api.setBookmarkDateFilter("all");
+});
+test("お気に入り優先・タイトル順・古い順・新しい順の並び替え", () => {
+  api.setState(baseState());
+  api.setBookmarkFavoriteOnly(false); api.setBookmarkFilter("all");
+  api.setBookmarkQuery(""); api.setBookmarkDateFilter("all");
+  const bookmarks = api.getState().bookmarks;
+  bookmarks.push({id:"a",title:"りんご",url:"https://a.local/a",tags:["Web"],
+    savedAt:"2026-11-01T12:00:00.000Z",favorite:true});
+  bookmarks.push({id:"b",title:"あさ",url:"https://a.local/b",tags:["Web"],
+    savedAt:"2026-11-09T12:00:00.000Z",favorite:false});
+  bookmarks.push({id:"c",title:"やま",url:"https://a.local/c",tags:["Web"],
+    savedAt:"2026-11-05T12:00:00.000Z",favorite:true});
+  api.setBookmarkSort("favorite");
+  assert.equal(api.visibleBookmarks().map(x=>x.id).join(","),"c,a,b");
+  api.setBookmarkSort("title");
+  assert.equal(api.visibleBookmarks().map(x=>x.id).join(","),"b,c,a");
+  api.setBookmarkSort("old");
+  assert.equal(api.visibleBookmarks().map(x=>x.id).join(","),"a,c,b");
+  api.setBookmarkSort("new");
+  assert.equal(api.visibleBookmarks().map(x=>x.id).join(","),"b,c,a");
+});
+test("タグ名の一括変更と既存タグへの統合が保存ページ・保存ボタンに反映", () => {
+  api.setState(baseState());
+  api.setBookmarkFilter("tag:メール");
+  api.storeBookmark("https://garoon.local/mail/88", "資料送付", ["メール","Web"]);
+  assert.equal(api.bookmarkTagUsage("メール"), 1);
+  assert.equal(api.renameBookmarkTag("メール","事務連絡"), true);
+  assert.equal(api.getState().bookmarks[0].tags.includes("事務連絡"), true);
+  assert.equal(api.getState().bookmarkPresets[0].tags[0], "事務連絡");
+  assert.equal(api.visibleBookmarks().length, 1);
+  assert.equal(api.renameBookmarkTag("事務連絡","Web"), true);
+  assert.equal(api.getState().bookmarks[0].tags.join(","), "Web");
+  assert.equal(api.getState().bookmarkPresets[0].tags.join(","), "Web");
+  assert.equal(api.getState().bookmarkTags.join(","), "Web");
+  api.setBookmarkFilter("all");
+});
+test("タグ削除でブックマーク本体は残し、単独タグ保存ボタンは保護", () => {
+  api.setState(baseState());
+  api.setBookmarkFilter("tag:メール");
+  api.storeBookmark("https://garoon.local/mail/90", "質問", ["メール"]);
+  assert.throws(() => api.deleteBookmarkTag("メール"), /保存ボタン/);
+  api.getState().bookmarkPresets[0].tags.push("Web");
+  assert.equal(api.deleteBookmarkTag("メール"), 1);
+  assert.equal(api.getState().bookmarks.length, 1);
+  assert.equal(api.getState().bookmarks[0].tags.length, 0);
+  assert.equal(api.getState().bookmarkPresets[0].tags.join(","), "Web");
+  assert.equal(api.visibleBookmarks().length, 1);
+  api.setBookmarkFilter("all");
+});
+test("お気に入り情報もバックアップに含まれ、型を検証", () => {
+  api.setState(baseState());
+  api.storeBookmark("https://garoon.local/mail/91", "件名", ["メール"]);
+  const item = api.getState().bookmarks[0];
+  api.toggleBookmarkFavorite(item.id);
+  const backup = JSON.parse(JSON.stringify(api.createBackup()));
+  assert.equal(api.validateBackup(backup).bookmarks.items[0].favorite, true);
+  backup.modules.bookmarks.items[0].favorite = "true";
+  assert.throws(() => api.validateBackup(backup), /お気に入り/);
+});
+test("一覧は初期5件・もっと表示する5件単位、クリック領域、メニューを備える", () => {
+  assert.match(source, /bookmarkShownCount = 5/);
+  assert.match(source, /matches\.slice\(0, bookmarkShownCount\)/);
+  assert.match(source, /bookmarkShownCount \+= 5/);
+  assert.match(source, /"bookmark-open"/);
+  assert.match(source, /"bookmark-item-menu"/);
+  assert.match(source, /"bookmark-filter-row"/);
+  assert.match(source, /"URLをコピー"/);
+  assert.match(source, /"✓ 保存済み"/);
+  assert.match(source, /"bookmark-tags"\) renderBookmarkTags/);
 });
