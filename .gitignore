@@ -1,0 +1,10 @@
+# 開発者のローカルデータを誤って公開リポジトリへ入れないための除外設定
+user-data/
+private/
+local/
+*.personal.json
+*.private.json
+*.local.json
+*.zip
+.DS_Store
+Thumbs.db
