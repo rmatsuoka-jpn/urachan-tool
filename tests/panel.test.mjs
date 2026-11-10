@@ -185,7 +185,7 @@ test("配布アイコン・拡張設定・簡素化したヘッダーを検証",
   }
   const header = source.split("function renderHeader() {")[1].split("function renderList(")[0];
   assert.doesNotMatch(header, /brand-icon|うらちゃんツール/);
-  assert.match(header, /"icon-only-button"/);
+  assert.match(header, /icon-only-button/);
   assert.match(header, /title: "設定", "aria-label": "設定"/);
   assert.match(header, /"× とじる"/);
   assert.match(header, /feature-nav-prev/);

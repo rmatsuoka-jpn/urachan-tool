@@ -46,7 +46,7 @@ test("画像変換は独立ファイルとして登録され、余分なChrome�
   const manifest = JSON.parse(readFileSync(join(base, "manifest.json"), "utf8"));
   const html = readFileSync(join(base, "panel.html"), "utf8");
   const panel = readFileSync(join(base, "panel.js"), "utf8");
-  assert.equal(manifest.version, "0.6.0");
+  assert.equal(manifest.version, "0.6.1");
   assert.match(manifest.content_security_policy.extension_pages, /wasm-unsafe-eval/);
   assert.equal(manifest.host_permissions, undefined);
   assert.ok(!manifest.permissions.includes("downloads"));
