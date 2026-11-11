@@ -451,7 +451,9 @@
         ctx.notify("入力内容を確認してください。件名は必須です。");
         return false;
       }
-      const changed = item.title !== title.value.trim() || item.memo !== memo.value ||
+      // 保存値と入力値をそろえ、余分な空白による誤った未保存警告を防ぐ。
+      title.value = title.value.trim();
+      const changed = item.title !== title.value || item.memo !== memo.value ||
         item.dueDate !== due.value || item.finalAnswer !== answer.value ||
         item.references !== references.value;
       if (changed) {
@@ -498,11 +500,7 @@
       el("h2", { text: "回答・結果" }),
       buttonLabel("最終回答・対応結果", answer),
       buttonLabel("参考情報（任意）", references),
-      button("変更を保存", "button-primary full", () => {
-        if (saveFields(true)) {
-          // 入力位置を変えず、編集中の対応履歴も残す。
-        }
-      })
+      button("変更を保存", "button-primary full", () => { saveFields(true); })
     ]));
 
     const history = el("section", { class: "task-detail-section task-detail-history" },
