@@ -509,7 +509,7 @@ function createBackup() {
       settings: { visibleModules: state.visibleModules },
       bookmarks: bookmarkDataSnapshot(),
       tasks: state.tasks,
-      calculations: { recent: state.calculationRecent }
+      calculations: { recent: state.calculationRecent || [] }
     }
   };
 }
