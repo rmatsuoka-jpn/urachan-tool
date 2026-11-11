@@ -120,3 +120,9 @@ test("小さい単価積算の結果をゼロに丸めず、円単位の金額�
   assert.throws(() => compute("tax", { amount: "10.5" }), /1円単位/);
   assert.throws(() => compute("travel-estimate", { days: "2", nights: "1", fare: "100.5" }), /1円単位/);
 });
+
+test("旅費の任意費目を未計上と明示する", () => {
+  const result = compute("travel-estimate", { days: "2", nights: "1" });
+  assert.equal(by(result, "全体の旅費概算"), "0");
+  assert.match(result.note, /未計上：交通費・宿泊費・日当・手当/);
+});
