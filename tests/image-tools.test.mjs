@@ -46,7 +46,7 @@ test("画像変換は独立ファイルとして登録され、余分なChrome�
   const manifest = JSON.parse(readFileSync(join(base, "manifest.json"), "utf8"));
   const html = readFileSync(join(base, "panel.html"), "utf8");
   const panel = readFileSync(join(base, "panel.js"), "utf8");
-  assert.equal(manifest.version, "0.6.2");
+  assert.equal(manifest.version, "0.6.3");
   assert.match(manifest.content_security_policy.extension_pages, /wasm-unsafe-eval/);
   assert.equal(manifest.host_permissions, undefined);
   assert.ok(!manifest.permissions.includes("downloads"));
@@ -54,11 +54,14 @@ test("画像変換は独立ファイルとして登録され、余分なChrome�
   assert.match(panel, /\{ id: "images", name: "画像変換"/);
   assert.match(panel, /UraImageTools\.render/);
   assert.doesNotMatch(code, /\bfetch\s*\(/);
-  assert.ok(statSync(join(base, "vendor", "heic", "libheif-bundle.mjs")).size > 1000000);
+  assert.match(readFileSync(join(base, "heifer-wasm", "Cargo.toml"), "utf8"), /heifer = \\{ version = "=0\\.5\\.0", default-features = false \\}/);
+  assert.match(readFileSync(join(base, "heifer-wasm", "src", "lib.rs"), "utf8"), /decode_srgb_rgba8/);
+  assert.doesNotMatch(code, /libheif|libheif-bundle/);
+  assert.match(code, /vendor\\/heic\\/heifer\\.js/);
   assert.ok(statSync(join(base, "vendor", "jszip", "jszip.min.js")).size > 50000);
   for (const file of [
-    "LICENSE", "THIRD_PARTY_NOTICES.md", "vendor/heic/LICENSE",
-    "vendor/heic/GPL-3.0.txt", "vendor/jszip/LICENSE-MIT.txt"
+    "LICENSE", "THIRD_PARTY_NOTICES.md", "vendor/heic/LICENSE-HEIFER-MIT",
+    "vendor/heic/LICENSE-WASM-BINDGEN-MIT", "vendor/jszip/LICENSE-MIT.txt"
   ]) assert.ok(statSync(join(base, file)).size > 100);
 });
 
@@ -67,6 +70,16 @@ test("画像変換ライブラリは外部通信に依存せず、単独ダウ�
   assert.match(code, /result\.length > 1/);
   assert.match(code, /compression: "STORE"/);
   assert.match(code, /createImageBitmap/);
-  assert.match(code, /getHeif/);
+  assert.match(code, /getHeifer/);
   assert.match(code, /canvas\.toBlob/);
+});
+
+test("保存形式は横並びのJPEG・PNGラジオボタンで切り替える", () => {
+  assert.match(code, /element\\("fieldset", "image-format-field"\\)/);
+  assert.match(code, /radio\\.type = "radio"/);
+  assert.match(code, /\\[\\["jpeg", "JPEG"\\], \\["png", "PNG"\\]\\]/);
+  assert.match(code, /formatInputs\\.forEach/);
+  assert.doesNotMatch(code, /selectField\\("保存形式"/);
+  const css = readFileSync(join(base, "panel.css"), "utf8");
+  assert.match(css, /\\.image-format-options \\{ display: flex/);
 });
