@@ -54,10 +54,10 @@ test("画像変換は独立ファイルとして登録され、余分なChrome�
   assert.match(panel, /\{ id: "images", name: "画像変換"/);
   assert.match(panel, /UraImageTools\.render/);
   assert.doesNotMatch(code, /\bfetch\s*\(/);
-  assert.match(readFileSync(join(base, "heifer-wasm", "Cargo.toml"), "utf8"), /heifer = \\{ version = "=0\\.5\\.0", default-features = false \\}/);
+  assert.match(readFileSync(join(base, "heifer-wasm", "Cargo.toml"), "utf8"), /heifer = \{ version = "=0\.5\.0", default-features = false \}/);
   assert.match(readFileSync(join(base, "heifer-wasm", "src", "lib.rs"), "utf8"), /decode_srgb_rgba8/);
   assert.doesNotMatch(code, /libheif|libheif-bundle/);
-  assert.match(code, /vendor\\/heic\\/heifer\\.js/);
+  assert.match(code, /vendor\/heic\/heifer\.js/);
   assert.ok(statSync(join(base, "vendor", "jszip", "jszip.min.js")).size > 50000);
   for (const file of [
     "LICENSE", "THIRD_PARTY_NOTICES.md", "vendor/heic/LICENSE-HEIFER-MIT",
@@ -75,11 +75,11 @@ test("画像変換ライブラリは外部通信に依存せず、単独ダウ�
 });
 
 test("保存形式は横並びのJPEG・PNGラジオボタンで切り替える", () => {
-  assert.match(code, /element\\("fieldset", "image-format-field"\\)/);
-  assert.match(code, /radio\\.type = "radio"/);
-  assert.match(code, /\\[\\["jpeg", "JPEG"\\], \\["png", "PNG"\\]\\]/);
-  assert.match(code, /formatInputs\\.forEach/);
-  assert.doesNotMatch(code, /selectField\\("保存形式"/);
+  assert.match(code, /element\("fieldset", "image-format-field"\)/);
+  assert.match(code, /radio\.type = "radio"/);
+  assert.match(code, /\[\["jpeg", "JPEG"\], \["png", "PNG"\]\]/);
+  assert.match(code, /formatInputs\.forEach/);
+  assert.doesNotMatch(code, /selectField\("保存形式"/);
   const css = readFileSync(join(base, "panel.css"), "utf8");
-  assert.match(css, /\\.image-format-options \\{ display: flex/);
+  assert.match(css, /\.image-format-options \{ display: flex/);
 });
