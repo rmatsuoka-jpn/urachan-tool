@@ -21,8 +21,16 @@ const FEATURES = [
   { id: "dates", name: "日付ツール", description: "西暦・和暦変換と日付計算" },
   { id: "bookmarks", name: "あとで見る", description: "現在のページを保存し、タグで整理" },
   { id: "images", name: "画像変換", description: "JPEG・PNG・HEICをリサイズ・圧縮・変換" },
-  { id: "tasks", name: "メモ・タスク", description: "簡単なメモから対応履歴・ナレッジ出力まで" }
+  { id: "tasks", name: "メモ・タスク", description: "簡単なメモから対応履歴・ナレッジ出力まで" },
+  { id: "calculations", name: "数値計算", description: "割合・税・積算・出張旅費の概算" }
 ];
+const CALCULATION_IDS = new Set(["ratio", "change", "tax", "subsidy", "round", "unit-price", "sum-average", "travel-estimate", "fare-items"]);
+function checkCalculationRecent(value) {
+  if (!Array.isArray(value) || value.length > 3
+    || !value.every(id => typeof id === "string" && CALCULATION_IDS.has(id))
+    || new Set(value).size !== value.length) throw Error("最近使った計算の設定が正しくありません。");
+  return [...value];
+}
 const ERAS = [
   { name: "令和", start: 2019, end: null },
   { name: "平成", start: 1989, end: 2019 },
@@ -46,7 +54,8 @@ const DEFAULT_STATE = {
   bookmarks: [],
   bookmarkPresets: structuredClone(DEFAULT_BOOKMARK_PRESETS),
   bookmarkTags: [...DEFAULT_BOOKMARK_TAGS],
-  tasks: { version: 1, nextNumber: 1, items: [] }
+  tasks: { version: 1, nextNumber: 1, items: [] },
+  calculationRecent: []
 };
 
 let state = structuredClone(DEFAULT_STATE);
@@ -481,11 +490,13 @@ function validateBackup(data) {
     ? null : validateBookmarkData(data.modules.bookmarks);
   const tasks = data.modules.tasks === undefined
     ? null : window.UraTasks.validate(data.modules.tasks);
+  const calculationRecent = data.modules.calculations === undefined
+    ? null : checkCalculationRecent(data.modules.calculations.recent);
   return {
     personal: validated.personal, favoriteKeys: validated.favoriteKeys,
     visibleModules: [...settings.visibleModules],
     sharedPreferences: preferences.map((pref) => ({ id: pref.id, enabled: pref.enabled })),
-    bookmarks, tasks
+    bookmarks, tasks, calculationRecent
   };
 }
 function createBackup() {
@@ -497,7 +508,8 @@ function createBackup() {
       sharedPreferences: state.sharedPreferences,
       settings: { visibleModules: state.visibleModules },
       bookmarks: bookmarkDataSnapshot(),
-      tasks: state.tasks
+      tasks: state.tasks,
+      calculations: { recent: state.calculationRecent }
     }
   };
 }
@@ -747,6 +759,7 @@ function renderHome(main) {
   if (activeModule === "bookmarks") return renderBookmarks(main);
   if (activeModule === "images") return window.UraImageTools.render(main);
   if (activeModule === "tasks") return window.UraTasks.render(main, { state, persist, notify, render });
+  if (activeModule === "calculations") return window.UraCalculations.render(main, { state, persist, notify, copyText });
   main.append(...heading("定型文をコピー", "使いたい文章を押すだけでコピーできます。"));
   const search = el("input", {
     type: "search", class: "search", value: queryText,
@@ -1415,7 +1428,7 @@ function renderSettings(main) {
     main.append(devBox);
   }
   const version = el("button", {
-    type: "button", class: "version", "aria-label": "バージョン 0.6.0",
+    type: "button", class: "version", "aria-label": "バージョン 0.6.2",
     onClick: () => {
       if (state.developerEnabled) return;
       const now = Date.now();
@@ -1430,7 +1443,7 @@ function renderSettings(main) {
         if (hint) hint.textContent = "あと" + (5 - versionTapCount) + "回で開発者モード";
       }
     }
-  }, "うらちゃんツール v0.6.1");
+  }, "うらちゃんツール v0.6.2");
   main.append(version, el("div", { id: "developer-hint", class: "dev-hint" }));
   main.append(helpPopup("データはこのPCのChromeプロファイルに保存されます。共用PCでは他の利用者から見える可能性があります。"));
 }
@@ -1597,6 +1610,7 @@ function renderBackupManager(main) {
       state.bookmarkTags = imported.bookmarks.tags;
     }
     if (imported.tasks) state.tasks = imported.tasks;
+    if (imported.calculationRecent !== null) state.calculationRecent = imported.calculationRecent;
     if (!state.visibleModules.includes(activeModule)) activeModule = state.visibleModules[0];
     await persist();
     render();
@@ -1808,6 +1822,13 @@ async function start() {
       } catch (error) {
         console.error("メモ・タスクを読み込めませんでした", error);
         notify("メモ・タスクの読み込みに失敗しました。バックアップをご確認ください。");
+      }
+      try {
+        state.calculationRecent = stored.calculationRecent === undefined
+          ? [] : checkCalculationRecent(stored.calculationRecent);
+      } catch (error) {
+        console.warn("最近使った計算を読み込めませんでした", error);
+        state.calculationRecent = [];
       }
       if (!state.visibleModules.length) state.visibleModules = ["templates"];
     }
