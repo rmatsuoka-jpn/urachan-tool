@@ -436,3 +436,16 @@ main { padding: 16px 14px 30px; }
 .task-history {border-left:3px solid #b7cce9;padding:1px 0 2px 10px}
 .task-history p {white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 0;font-size:.88rem}
 .task-export p {margin:0}
+
+
+/* 画像形式は2択だけなので、狭いサイドパネルでも選べる横並びラジオにする。 */
+.image-format-field { border: 0; padding: 0; margin: 11px 0 0; min-width: 0; }
+.image-format-field legend { padding: 0; margin-bottom: 6px; font-size: 12px; font-weight: 700; }
+.image-format-options { display: flex; gap: 8px; }
+.image-format-option { display: flex; flex: 1 1 0; align-items: center; justify-content: center;
+  gap: 8px; min-width: 0; padding: 10px 8px; box-sizing: border-box; cursor: pointer;
+  background: #fff; border: 1px solid #cddae3; border-radius: 9px; font-weight: 600; }
+.image-format-option input { margin: 0; accent-color: #08718d; cursor: pointer; }
+.image-format-option:has(input:checked) { border-color: #08718d; background: #eef7fa; }
+.image-format-option:focus-within { outline: 2px solid #5995af; outline-offset: 1px; }
+.image-format-option:has(input:disabled) { opacity: .7; cursor: default; }
