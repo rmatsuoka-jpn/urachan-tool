@@ -162,7 +162,13 @@ function persist() {
   });
   return saveQueue;
 }
+// メモ詳細の未保存入力を破棄する前に確認する（他機能・設定へ移動する場合も対象）。
+function canLeaveTasks() {
+  return !(view === "home" && activeModule === "tasks") ||
+    window.UraTasks.confirmLeave();
+}
 function navigate(next) {
+  if (view === "home" && next !== "home" && !canLeaveTasks()) return;
   view = next;
   render();
 }
@@ -620,6 +626,7 @@ function upsertShared(set) {
   persist();
 }
 async function closeSidePanel() {
+  if (!canLeaveTasks()) return;
   // Chrome 141以降は公式APIで閉じ、未対応時はパネル内のwindow.close()を使います。
   try {
     if (typeof chrome.sidePanel?.close === "function"
@@ -671,6 +678,7 @@ function renderHeader() {
     if (shown.length > 1) {
       shown.forEach((module) => {
         const button = btn(module.name, activeModule === module.id ? "active" : "", () => {
+          if (module.id !== activeModule && !canLeaveTasks()) return;
           featureNavScrollLeft = nav.scrollLeft;
           activeModule = module.id;
           render();
@@ -1838,6 +1846,13 @@ async function start() {
   }
   render();
   window.addEventListener("resize", () => updateFeatureNavArrows());
+  // Chrome標準の閉じる操作など、パネル内の「× とじる」以外にも備える。
+  // ブラウザー側の制約により、この警告が表示されない終了方法もある。
+  window.addEventListener("beforeunload", (event) => {
+    if (view !== "home" || activeModule !== "tasks" || !window.UraTasks.hasUnsavedDetail()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
   // ブラウザのタブを切り替えた場合も、現在のページの保存状態を更新する。
   const refreshBookmarkPreviewIfVisible = () => {
     if (view !== "home" || activeModule !== "bookmarks") return;
