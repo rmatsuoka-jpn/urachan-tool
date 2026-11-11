@@ -12,6 +12,9 @@ on:
       - panel.js
       - image-tools.js
       - task-tools.js
+      - calculation-core.js
+      - calculation-tools.js
+      - calculation.css
       - vendor/**
       - LICENSE
       - THIRD_PARTY_NOTICES.md
@@ -30,6 +33,9 @@ on:
       - panel.js
       - image-tools.js
       - task-tools.js
+      - calculation-core.js
+      - calculation-tools.js
+      - calculation.css
       - vendor/**
       - LICENSE
       - THIRD_PARTY_NOTICES.md
@@ -56,6 +62,8 @@ jobs:
           node --check panel.js
           node --check image-tools.js
           node --check task-tools.js
+          node --check calculation-core.js
+          node --check calculation-tools.js
           node --check vendor/heic/libheif-bundle.mjs
           node --test tests/*.test.mjs
           node -e 'const fs=require("node:fs"); const m=require("./manifest.json"); if(m.manifest_version!==3 || m.side_panel?.default_path!=="panel.html") process.exit(1); for(const n of [16,32,48,128]) {const f="icon"+n+".png"; if(m.icons?.[n]!==f || m.action?.default_icon?.[n]!==f || !fs.existsSync(f)) process.exit(1);}'
@@ -78,6 +86,7 @@ jobs:
           mkdir -p dist
           files=(
             manifest.json background.js panel.html panel.css panel.js image-tools.js task-tools.js
+            calculation-core.js calculation-tools.js calculation.css
             icon16.png icon32.png icon48.png icon128.png
             LICENSE THIRD_PARTY_NOTICES.md
             vendor/heic/libheif-bundle.mjs vendor/heic/LICENSE vendor/heic/GPL-3.0.txt
@@ -125,4 +134,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "うらちゃんツール ${tag}（デモ版）" \
-            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。メモ・タスクと画像変換用ファイル・第三者ライセンスを含む18ファイルを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
+            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。数値計算・メモ・タスク・画像変換用ファイル・第三者ライセンスを含む21ファイルを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
