@@ -12,7 +12,7 @@
   let busy = false;
   let view = null;
   let nextId = 0;
-  let heifPromise = null;
+  let heiferPromise = null;
   let zipPromise = null;
   let message = "画像はこのPC内だけで処理され、保存されません。";
 
@@ -59,29 +59,31 @@
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
-  const getHeif = async () => {
-    if (!heifPromise) {
-      heifPromise = import("./vendor/heic/libheif-bundle.mjs")
-        .then((module) => module.default()).catch((error) => { heifPromise = null; throw error; });
+  const getHeifer = async () => {
+    if (!heiferPromise) {
+      heiferPromise = import("./vendor/heic/heifer.js")
+        .then(async (module) => {
+          await module.default({ module_or_path: chrome.runtime.getURL("vendor/heic/heifer_bg.wasm") });
+          return module;
+        }).catch((error) => { heiferPromise = null; throw error; });
     }
-    return heifPromise;
+    return heiferPromise;
   };
   const decodeHeic = async (file) => {
-    const lib = await getHeif();
-    const decoder = new lib.HeifDecoder();
-    const images = decoder.decode(new Uint8Array(await file.arrayBuffer()));
-    if (!images || !images.length) throw Error("HEIC画像を読み取れません。");
-    const first = images[0];
-    const width = first.get_width();
-    const height = first.get_height();
-    if (width <= 0 || height <= 0 || width * height > MAX_PIXELS) {
-      throw Error("画像の画素数が処理上限を超えています。");
+    const heifer = await getHeifer();
+    const decoded = heifer.decode(new Uint8Array(await file.arrayBuffer()));
+    try {
+      const width = decoded.width;
+      const height = decoded.height;
+      if (width <= 0 || height <= 0 || width * height > MAX_PIXELS) {
+        throw Error("画像の画素数が処理上限を超えています。");
+      }
+      const rgba = new Uint8ClampedArray(decoded.rgba);
+      const data = new ImageData(rgba, width, height);
+      return await createImageBitmap(data);
+    } finally {
+      decoded.free();
     }
-    const data = new ImageData(width, height);
-    await new Promise((resolve, reject) => {
-      first.display(data, (output) => output ? resolve() : reject(Error("HEICのデコードに失敗しました。")));
-    });
-    return createImageBitmap(data);
   };
   const encode = (canvas, type, quality) => new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -146,7 +148,7 @@
     view.convert.disabled = busy || items.length === 0;
     view.pick.disabled = busy;
     view.size.disabled = busy;
-    view.format.disabled = busy;
+    view.formatInputs.forEach((input) => { input.disabled = busy; });
     view.quality.disabled = busy;
     view.qualityRow.hidden = choices.format === "png";
     view.convert.textContent = busy ? "変換中…" : items.length + "枚を変換して保存";
@@ -323,9 +325,27 @@
       ["original", "変更しない"], ["1600", "1600px（標準）"],
       ["1200", "1200px（軽量）"], ["800", "800px（小さめ）"]
     ], choices.size, (value) => { choices.size = value; clearStatuses(); });
-    const format = selectField("保存形式", [["jpeg", "JPEG"], ["png", "PNG"]], choices.format, (value) => {
-      choices.format = value; clearStatuses();
-    });
+    const formatField = element("fieldset", "image-format-field");
+    formatField.append(element("legend", "", "保存形式"));
+    const formatOptions = element("div", "image-format-options");
+    const formatInputs = [];
+    for (const [value, caption] of [["jpeg", "JPEG"], ["png", "PNG"]]) {
+      const option = element("label", "image-format-option");
+      const radio = element("input");
+      radio.type = "radio";
+      radio.name = "image-output-format";
+      radio.value = value;
+      radio.checked = choices.format === value;
+      radio.addEventListener("change", () => {
+        if (!radio.checked) return;
+        choices.format = value;
+        clearStatuses();
+      });
+      option.append(radio, element("span", "", caption));
+      formatOptions.append(option);
+      formatInputs.push(radio);
+    }
+    formatField.append(formatOptions);
     const qualityRow = element("label", "image-setting-field");
     const qualityHeading = element("span", "", "JPEG画質 ");
     const qualityText = element("strong", "", choices.quality + "%");
@@ -336,7 +356,7 @@
     quality.addEventListener("input", () => { choices.quality = Number(quality.value); qualityText.textContent = choices.quality + "%"; });
     quality.addEventListener("change", clearStatuses);
     qualityRow.append(qualityHeading, quality);
-    settings.append(size.field, format.field, qualityRow);
+    settings.append(size.field, formatField, qualityRow);
     settings.append(element("p", "help", "縦横比を維持し、小さい画像は拡大しません。JPEG化した透過画像の背景は白になります。"));
     main.append(settings);
 
@@ -348,7 +368,7 @@
     status.setAttribute("aria-live", "polite");
     main.append(convert, status);
     main.append(element("p", "help", "元画像は変更しません。1枚は画像、複数枚はZIPで保存します。GPS・撮影情報は原則引き継ぎません。"));
-    view = { drop, pick, list, summary, clear, size: size.select, format: format.select, quality, qualityRow, convert, message: status };
+    view = { drop, pick, list, summary, clear, size: size.select, formatInputs, quality, qualityRow, convert, message: status };
     updateMessage(message);
     refresh();
   }
