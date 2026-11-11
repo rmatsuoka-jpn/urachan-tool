@@ -2,7 +2,17 @@
 
 自治体などの閉域イントラネットでも使える、外部通信なしのChromeサイドパネル型業務ツールです。既存システムの改修、サーバー、CDN、ビルド環境を必要としません。
 
-**最新：v0.6.2（行政向けの数値計算機能を追加）**。v0.6.1までの既存機能を維持しています。自動テストはCIで確認し、職場PCでの実機確認は別途必要です。
+**最新：v0.6.3（HEIC変換エンジン交換・保存形式のラジオボタン化）**。v0.6.2までの既存機能を維持しています。自動テストと職場PCでの実機確認は区別してください。
+
+## v0.6.3 の変更点：HEICデコーダー交換・保存形式UI
+
+- **保存形式**はJPEG / PNGの横並びラジオボタンに変更しました。JPEG画質のスライダーはJPEG選択時のみ表示されます。
+- HEIC/HEIFのデコーダーを、LGPLのlibheifから**heifer v0.5.0（MIT OR Apache-2.0）**へ交換しました。HEIC変換はオフラインで行い、最初のHEIC処理時にWASMを読み込みます。
+- 色変換にはsRGBを使用し、写真の向きと主画像を扱います。EXIF/GPSの出力は引き継ぎません。
+- デコーダーのRustソースとビルド手順は `heifer-wasm/` にあります。GitHub ActionsでWASMを生成して配布ZIPに同梱するため、利用者のPCにRust環境は不要です。**GitHubのSource code ZIPだけではWASM生成物が含まれません。**
+- 元のJPEG/PNGの変換、サイズ変更、ZIP保存、バックアップ仕様とChrome権限は変更しません。
+- **未検証**：職場Chromeの実機で、iPhoneのHEIC画像の縦横・色味・処理時間とZIP保存を確認する必要があります。
+- **注記**：LGPL非使用でもHEVC特許の確認事項は別途残ります。
 
 ## v0.6.2 の変更点：数値計算
 
@@ -48,7 +58,7 @@
 - JPEG / PNG / HEIC / HEIFを、ファイル選択または**ドラッグ＆ドロップ**で追加。最大30枚・1枚50MB・合計250MB（処理時の画素数上限4,800万）。
 - **長辺サイズ**：変更しない／1600px（初期値）／1200px／800px。縦横比維持、元画像より小さいものを拡大しません。
 - **保存形式**：JPEG（初期値）／PNG。JPEGの画質は40〜100%（初期値80%）。PNGでは画質設定を非表示にします。
-- **HEIC → JPEG/PNG**：ローカル同梱のlibheifによるデコード後、ChromeのCanvasで保存形式に変換。入力の種類によって非対応画像や色・向きに差が出る場合があるため、職場PCの実画像で要確認です。
+- **HEIC → JPEG/PNG**：初期実装はlibheifを使用していましたが、v0.6.3でMIT系のheifer WASMに置換しました。変換後は既存のCanvasで保存形式に変換します。
 - **一覧**：元ファイル名・容量・進捗・変換後容量・削減率・失敗理由を表示。個別除外と全件削除ができます。
 - **保存**：変換成功が1枚なら画像ファイル、複数ならZIPを1回ダウンロード。同じ出力名は連番にして衝突回避します。失敗した画像は結果に含めず、画面で知らせます。
 - **プライバシー**：画像をサーバーに送信せず、Chromeの保存領域・JSONバックアップにも入れません。出力ではEXIF（撮影日時・GPS等）は原則引き継ぎません。透過PNG→JPEGの背景は白になります。
@@ -118,7 +128,7 @@
 
 ## 更新について
 
-v0.6.2はv0.6.1までの機能を維持し、数値計算を追加します。今回、既存データの移行検証は必須要件としていません。重要なデータがある場合は更新前に現在の「バックアップ・復元」でバックアップしてください。
+v0.6.3はv0.6.2までの機能を維持し、画像デコーダーと保存形式UIを更新します。既存データの移行検証は今回の必須要件としていません。重要なデータがある場合は更新前に現在の「バックアップ・復元」でバックアップしてください。
 
 ## v0.1.x からの更新注意
 
@@ -128,14 +138,14 @@ v0.6.2はv0.6.1までの機能を維持し、数値計算を追加します。�
 
 ## 配布と導入
 
-配布用ZIPは [GitHub Releases](https://github.com/rmatsuoka-jpn/urachan-tool/releases) から `urachan-tool-v0.6.2.zip` を取得します。GitHubの「Source code (zip)」ではありません。
+配布用ZIPは [GitHub Releases](https://github.com/rmatsuoka-jpn/urachan-tool/releases) から `urachan-tool-v0.6.3.zip` を取得します。GitHubの「Source code (zip)」ではありません。
 
 1. ZIPを解凍し、`manifest.json` のあるフォルダを用意します
 2. Chromeで `chrome://extensions` を開き、デベロッパーモードをONにします
 3. 新規導入時は「パッケージ化されていない拡張機能を読み込む」でフォルダを選びます。更新時は既存フォルダを上書きして「再読み込み」します
 4. ツールバーの拡張機能ボタンからサイドパネルを開きます
 
-配布ZIPは本体ソース10ファイル（既存7ファイルと`calculation-core.js`、`calculation-tools.js`、`calculation.css`）、アイコン4ファイル、`LICENSE`、`THIRD_PARTY_NOTICES.md`、`vendor/heic/`の3ファイル、`vendor/jszip/`の2ファイル（計21ファイル）を収録します。`vendor/`以下のフォルダー構造を変えずに解凍してください。設計書やJSONデータは含みません。
+配布ZIPは本体ソース10ファイル（既存7ファイルと`calculation-core.js`、`calculation-tools.js`、`calculation.css`）、アイコン4ファイル、`LICENSE`、`THIRD_PARTY_NOTICES.md`、`vendor/heic/`の4ファイル（heiferのWASM/JSとライセンス）、`vendor/jszip/`の2ファイル（計22ファイル）を収録します。`vendor/`以下のフォルダー構造を変えずに解凍してください。設計書やJSONデータは含みません。
 
 Chrome 116以降を対象としています。職場PCの拡張機能インストール・データ持出しに関する規則を守ってください。閉域環境では外部のサービスにアクセスしません。
 
@@ -160,7 +170,7 @@ Node.jsで `node --test tests/*.test.mjs` を実行できます（画像の形�
 
 ## ライセンス
 
-**本体コードはMITライセンス**（[LICENSE](LICENSE)）で公開しています。画像変換で同梱する**libheif系ライブラリはLGPL-3.0、JSZipはMIT**です。第三者の著作権と配布条件・上流ソースへのリンクは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。LGPL部品の対応ソースと再ビルド条件は配布前に追加検証が必要です。
+**本体コードはMITライセンス**（[LICENSE](LICENSE)）で公開しています。画像変換は**heifer（MIT OR Apache-2.0）**・**wasm-bindgen（MIT OR Apache-2.0）**・**JSZip（MIT）**を使用します。LGPL版libheifはv0.6.3から同梱しません。第三者の著作権・ライセンス表示は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。
 
 ## プライバシーと保存場所
 
