@@ -180,3 +180,19 @@ test("詳細の完了は未保存の入力を確認・保存し、履歴の入�
   assert.equal(context.state.tasks.items[0].completedAt, null);
   assert.equal(history.value, "まだ保存していない履歴");
 });
+
+test("記録がないカードはプレビューを省略し、詳細の★切替で編集中の文字を消さない", () => {
+  const { main, api, context } = setup();
+  context.state.tasks.items[1].history = [];
+  context.render();
+  assert.equal(byClass(main, "task-preview").length, 1);
+  button(main, "詳細").fire("click");
+  const textareas = findAll(main, (node) => node.tag === "textarea");
+  textareas[0].value = "まだ保存していないメモ";
+  const star = byClass(main, "task-star")[0];
+  star.fire("click");
+  assert.equal(context.state.tasks.items[0].knowledgeCandidate, true);
+  assert.equal(textareas[0].value, "まだ保存していないメモ");
+  assert.equal(api.hasUnsavedDetail(), true);
+  assert.equal(byClass(main, "task-detail-section").length, 3);
+});
