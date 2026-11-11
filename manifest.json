@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "うらちゃんツール",
   "short_name": "うらちゃん",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "閉域環境で使える定型文・日付・あとで見る・画像変換・メモタスク・数値計算のサイドパネル。",
   "minimum_chrome_version": "116",
   "permissions": [
