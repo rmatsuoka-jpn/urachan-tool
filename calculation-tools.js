@@ -123,6 +123,18 @@
     box.append(label(caption), sel);
     return box;
   }
+  function numberOptionField(id, caption) {
+    const d = draft(page.tool);
+    const wrap = node("div", "calc-field");
+    const row = node("div", "calc-input-row");
+    const input = node("input", "calc-input");
+    input.type = "text"; input.inputMode = "numeric"; input.value = d.options[id] || "1";
+    input.setAttribute("aria-label", caption);
+    input.addEventListener("input", () => { d.options[id] = input.value; updateResults(); });
+    row.append(input, button("▦", () => openPad("opt:" + id, caption), "calc-pad-open"));
+    wrap.append(label(caption), row);
+    return wrap;
+  }
   function checkboxField(id, caption, repaintOnChange = false) {
     const d = draft(page.tool);
     const wrap = node("label", "calc-check");
@@ -206,9 +218,8 @@
         }
         container.append(group(field("perDiem", "日当・手当単価（円）"), field("allowanceDays", "手当対象日数（日）")));
         container.append(moreOptions(
-          group(field("extras", "その他の交通費（1人分・円）"), field("packageAmount", "パック料金（円・利用時のみ）")),
-          group(selectField("people", "同条件の人数", [["1","1人"],["2","2人"],["3","3人"],["4","4人"],["5","5人"],["10","10人"]], "1"),
-            selectField("trips", "出張回数", [["1","1回"],["2","2回"],["3","3回"],["4","4回"],["5","5回"],["10","10回"]], "1")),
+          field("extras", "その他の交通費（1人分・円）"),
+          group(numberOptionField("people", "同条件の人数"), numberOptionField("trips", "出張回数")),
           checkboxField("usePackage", "パック料金で交通費と宿泊費をまとめて計上", true),
           ...(!d.options.usePackage ? [
             selectField("hotelMode", "宿泊料の方式", [["flat","定額"],["actual","実費"],["capped","上限付き実費"]], "flat", true),
@@ -327,6 +338,7 @@
     const [kind, index] = target.split(":");
     if (kind === "values") return { value: d.inputs.values[Number(index)] || "", assign: v => { d.inputs.values[Number(index)] = v; } };
     if (kind === "rows") return { value: d.inputs.rows[Number(index)].amount || "", assign: v => { d.inputs.rows[Number(index)].amount = v; } };
+    if (kind === "opt") return { value: d.options[index] || "", assign: v => { d.options[index] = v; } };
     return { value: d.inputs[target] || "", assign: v => { d.inputs[target] = v; } };
   }
   function openPad(target, caption) {
