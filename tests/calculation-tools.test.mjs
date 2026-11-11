@@ -113,3 +113,10 @@ test("必須未入力・負数・不正な日数は受け付けない", () => {
   assert.throws(() => compute("fare-items", { rows: [{ amount: "-1", quantity: "1" }] }));
   assert.throws(() => compute("travel-estimate", { days: "0", nights: "0" }));
 });
+
+test("小さい単価積算の結果をゼロに丸めず、円単位の金額検証を行う", () => {
+  assert.equal(by(compute("unit-price", { price: "0.000001", quantity: "0.000001" }),
+    "積算額"), "0.000000000001");
+  assert.throws(() => compute("tax", { amount: "10.5" }), /1円単位/);
+  assert.throws(() => compute("travel-estimate", { days: "2", nights: "1", fare: "100.5" }), /1円単位/);
+});
