@@ -283,7 +283,9 @@
       q.value = item.quantity == null ? "1" : item.quantity;
       q.setAttribute("aria-label", "利用回数");
       q.addEventListener("input", () => { item.quantity = q.value; updateResults(); });
-      qbox.append(label("回数（往復合計なら1）"), q);
+      const qrow = node("div", "calc-input-row");
+      qrow.append(q, button("▦", () => openPad("qty:" + index, "明細" + (index + 1) + "の利用回数"), "calc-pad-open"));
+      qbox.append(label("回数（往復合計なら1）"), qrow);
       card.append(cost, qbox);
       block.append(card);
     });
@@ -338,6 +340,7 @@
     const [kind, index] = target.split(":");
     if (kind === "values") return { value: d.inputs.values[Number(index)] || "", assign: v => { d.inputs.values[Number(index)] = v; } };
     if (kind === "rows") return { value: d.inputs.rows[Number(index)].amount || "", assign: v => { d.inputs.rows[Number(index)].amount = v; } };
+    if (kind === "qty") return { value: d.inputs.rows[Number(index)].quantity || "", assign: v => { d.inputs.rows[Number(index)].quantity = v; } };
     if (kind === "opt") return { value: d.options[index] || "", assign: v => { d.options[index] = v; } };
     return { value: d.inputs[target] || "", assign: v => { d.inputs[target] = v; } };
   }
