@@ -55,6 +55,11 @@
     return n;
   }
   function nonnegative(value, optional = false) { return decimal(value, { nonnegative: true, optional }); }
+  function yen(value, optional = false) {
+    const amount = nonnegative(value, optional);
+    if (amount && amount.d !== 1n) fail("金額は1円単位の整数で入力してください。");
+    return amount;
+  }
   function floorDiv(n, d) {
     let q = n / d;
     if (n < 0n && n % d) q--;
@@ -80,7 +85,7 @@
     return mul(rat(units), step);
   }
   function stringify(value, places = 6, fixed = false) {
-    places = Math.max(0, Math.min(6, Number(places) || 0));
+    places = Math.max(0, Math.min(12, Number(places) || 0));
     const scale = 10n ** BigInt(places);
     const rounded = halfAway(value.n * scale, value.d);
     const sign = rounded < 0n ? "-" : "";
@@ -181,7 +186,7 @@
         break;
       }
       case "tax": {
-        const amount = nonnegative(input.amount);
+        const amount = yen(input.amount);
         const taxRate = rate(o.taxRate === "custom" ? input.customTaxRate : (o.taxRate || "10"));
         const method = o.roundMode || "down";
         let net, gross, tax;
@@ -203,13 +208,13 @@
         break;
       }
       case "subsidy": {
-        const base = nonnegative(input.base);
+        const base = yen(input.base);
         const rt = o.rateType || "1/2";
         const fractions = { "1/2": rat(1n, 2n), "1/3": rat(1n, 3n), "2/3": rat(2n, 3n) };
         const subsidyRate = rt === "custom" ? rate(input.customRate) : fractions[rt];
         if (!subsidyRate) fail("補助率の選択が正しくありません。");
         const raw = mul(base, subsidyRate);
-        const cap = nonnegative(input.cap, true);
+        const cap = yen(input.cap, true);
         const r = roundOptions(o);
         let capped = cap && cmp(raw, cap) > 0 ? cap : raw;
         let estimated = quantize(capped, r.unit, r.mode);
@@ -236,7 +241,7 @@
           const r = roundOptions(o);
           amount = quantize(amount, r.unit, r.mode);
         }
-        items.push(result("積算額", amount));
+        items.push(result("積算額", amount, "", 12));
         formula = "単価 × 数量" + (o.useRound ? " → 指定単位で端数処理" : "");
         break;
       }
@@ -262,7 +267,7 @@
         let total = rat(0); let count = 0;
         for (const row of rows) {
           if (!row || String(row.amount == null ? "" : row.amount).trim() === "") continue;
-          const fare = nonnegative(row.amount);
+          const fare = yen(row.amount);
           const quantity = integer(row.quantity == null ? "1" : row.quantity, "利用回数", 1, 100);
           total = add(total, mul(fare, rat(quantity))); count++;
         }
@@ -278,8 +283,8 @@
         if (nights > days) fail("宿泊数は旅行日数以下にしてください。");
         const people = integer(o.people == null ? "1" : o.people, "人数", 1, 100);
         const trips = integer(o.trips == null ? "1" : o.trips, "出張回数", 1, 100);
-        const extras = nonnegative(input.extras, true) || rat(0);
-        const perDiem = nonnegative(input.perDiem, true);
+        const extras = yen(input.extras, true) || rat(0);
+        const perDiem = yen(input.perDiem, true);
         const allowanceDays = integer(input.allowanceDays, "手当対象日数", 0, 365, true);
         if (perDiem && perDiem.n > 0n && allowanceDays == null) {
           fail("手当単価を入力した場合は手当対象日数も指定してください。");
@@ -287,15 +292,15 @@
         const allowance = mul(perDiem || rat(0), rat(allowanceDays || 0));
         let fare = rat(0), hotel = rat(0), pack = rat(0);
         if (o.usePackage) {
-          pack = nonnegative(input.packageAmount);
+          pack = yen(input.packageAmount);
           note = "パック料金に含まれる交通費・宿泊費は重複計上しません。";
         } else {
-          fare = o.fareMode === "items" ? (input.itemFare ? nonnegative(input.itemFare) : rat(0)) : (nonnegative(input.fare, true) || rat(0));
+          fare = o.fareMode === "items" ? (input.itemFare ? yen(input.itemFare) : rat(0)) : (yen(input.fare, true) || rat(0));
           const hotelMode = o.hotelMode || "flat";
-          const hotelRate = nonnegative(input.hotelRate, true) || rat(0);
+          const hotelRate = yen(input.hotelRate, true) || rat(0);
           if (hotelMode === "flat" || hotelMode === "actual") hotel = mul(hotelRate, rat(nights));
           else if (hotelMode === "capped") {
-            const cap = nonnegative(input.hotelCap);
+            const cap = yen(input.hotelCap);
             hotel = mul(cmp(hotelRate, cap) > 0 ? cap : hotelRate, rat(nights));
           } else fail("宿泊費の方式が正しくありません。");
         }
