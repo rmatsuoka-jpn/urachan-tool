@@ -173,7 +173,7 @@ test("表示機能選択制かつ重複のデータ管理タブを廃止", () =>
 
 test("配布アイコン・拡張設定・簡素化したヘッダーを検証", () => {
   const manifest = JSON.parse(readFileSync(path.join(here, "..", "manifest.json"), "utf8"));
-  assert.equal(manifest.version, "0.6.1");
+  assert.equal(manifest.version, "0.6.2");
   for (const size of [16, 32, 48, 128]) {
     const name = `icon${size}.png`;
     assert.equal(manifest.icons[String(size)], name);
@@ -393,4 +393,19 @@ test("一覧は初期5件・もっと表示する5件単位、クリック領域
   assert.match(source, /"URLをコピー"/);
   assert.match(source, /"✓ 保存済み"/);
   assert.match(source, /"bookmark-tags"\) renderBookmarkTags/);
+});
+
+
+test("数値計算モジュールは任意表示・最近使った種類のみバックアップ", () => {
+  const state = api.getState();
+  state.calculationRecent = ["travel-estimate", "ratio"];
+  const backup = api.createBackup();
+  assert.deepEqual(JSON.parse(JSON.stringify(backup.modules.calculations.recent)), ["travel-estimate", "ratio"]);
+  assert.equal(JSON.stringify(backup).includes("64000"), false);
+  const legacy = structuredClone(backup);
+  delete legacy.modules.calculations;
+  assert.equal(api.validateBackup(legacy).calculationRecent, null);
+  assert.equal(api.validateBackup(backup).calculationRecent.length, 2);
+  backup.modules.calculations.recent = ["unknown"];
+  assert.throws(() => api.validateBackup(backup));
 });
