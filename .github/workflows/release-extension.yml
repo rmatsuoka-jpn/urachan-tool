@@ -54,6 +54,24 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Set up Rust for decode-only HEIC WebAssembly
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Build local heifer decoder and verify dependency licenses
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --format-version 1 --manifest-path heifer-wasm/Cargo.toml > /tmp/heifer-metadata.json
+          node -e 'const p=require("/tmp/heifer-metadata.json").packages;const bad=p.filter(x=>/LGPL|AGPL/i.test(x.license||""));if(bad.length){console.error(bad.map(x=>x.name+" "+x.license).join("\n"));process.exit(1)}'
+          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          cargo build --manifest-path heifer-wasm/Cargo.toml --release --target wasm32-unknown-unknown
+          wasm-bindgen --target web --no-typescript --out-dir vendor/heic --out-name heifer \
+            heifer-wasm/target/wasm32-unknown-unknown/release/urachan_heifer_wasm.wasm
+          test -s vendor/heic/heifer.js
+          test -s vendor/heic/heifer_bg.wasm
+
       - name: Validate source and run tests
         shell: bash
         run: |
@@ -64,7 +82,7 @@ jobs:
           node --check task-tools.js
           node --check calculation-core.js
           node --check calculation-tools.js
-          node --check vendor/heic/libheif-bundle.mjs
+          node --check vendor/heic/heifer.js
           node --test tests/*.test.mjs
           node -e 'const fs=require("node:fs"); const m=require("./manifest.json"); if(m.manifest_version!==3 || m.side_panel?.default_path!=="panel.html") process.exit(1); for(const n of [16,32,48,128]) {const f="icon"+n+".png"; if(m.icons?.[n]!==f || m.action?.default_icon?.[n]!==f || !fs.existsSync(f)) process.exit(1);}'
 
@@ -89,7 +107,8 @@ jobs:
             calculation-core.js calculation-tools.js calculation.css
             icon16.png icon32.png icon48.png icon128.png
             LICENSE THIRD_PARTY_NOTICES.md
-            vendor/heic/libheif-bundle.mjs vendor/heic/LICENSE vendor/heic/GPL-3.0.txt
+            vendor/heic/heifer.js vendor/heic/heifer_bg.wasm
+            vendor/heic/LICENSE-HEIFER-MIT vendor/heic/LICENSE-WASM-BINDGEN-MIT
             vendor/jszip/jszip.min.js vendor/jszip/LICENSE-MIT.txt
           )
           zip -9 "dist/urachan-tool-v${VERSION}.zip" "${files[@]}"
@@ -134,4 +153,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "うらちゃんツール ${tag}（デモ版）" \
-            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。数値計算・メモ・タスク・画像変換用ファイル・第三者ライセンスを含む21ファイルを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
+            --notes "閉域環境への持ち込み用のChrome拡張ZIPです。数値計算・メモ・タスク・画像変換用ファイル・第三者ライセンスを含む22ファイルを収録しています。ZIPを展開し、manifest.jsonがあるフォルダをChromeの拡張機能として読み込んでください。開発資料と個人データは含まれません。"
