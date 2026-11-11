@@ -678,7 +678,8 @@ function renderHeader() {
     if (shown.length > 1) {
       shown.forEach((module) => {
         const button = btn(module.name, activeModule === module.id ? "active" : "", () => {
-          if (module.id !== activeModule && !canLeaveTasks()) return;
+          // 同じタブの再クリックで編集中のフォームを再描画・破棄しない。
+          if (module.id === activeModule || !canLeaveTasks()) return;
           featureNavScrollLeft = nav.scrollLeft;
           activeModule = module.id;
           render();
