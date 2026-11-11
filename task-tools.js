@@ -19,6 +19,7 @@
   let exportFormat = "md";
   let exportScope = "done";
   let exportKnowledgeOnly = false;
+  let detailEditor = null;
 
   function validTime(s) {
     return typeof s === "string" && s.length <= 40 && Number.isFinite(Date.parse(s));
@@ -95,6 +96,30 @@
       hour: "2-digit", minute: "2-digit"
     });
   }
+
+  // 一覧には最終回答を優先し、回答がなければ日時が最も新しい履歴を表示する。
+  function latestPreview(item) {
+    if (item.finalAnswer.trim()) return { label: "最終回答・結果", text: item.finalAnswer.trim() };
+    const latest = item.history.reduce((result, entry) =>
+      !result || entry.at >= result.at ? entry : result, null);
+    return latest ? { label: "最新の対応履歴", text: latest.text } : null;
+  }
+  function hasUnsavedDetail() {
+    const editor = detailEditor;
+    if (!selectedId || !editor || editor.item.id !== selectedId) return false;
+    const { item, title, memo, due, answer, references, historyInput } = editor;
+    return title.value !== item.title || memo.value !== item.memo ||
+      due.value !== item.dueDate || answer.value !== item.finalAnswer ||
+      references.value !== item.references || Boolean(historyInput?.value.trim());
+  }
+  function confirmLeave() {
+    if (hasUnsavedDetail() && !confirm("未保存の変更があります。保存せずに移動しますか？")) return false;
+    selectedId = null;
+    addHistoryNow = false;
+    detailEditor = null;
+    return true;
+  }
+
   function inScope(items, scope, knowledgeOnly) {
     return items.filter((item) =>
       (scope === "all" || (scope === "done" ? item.completedAt !== null : item.completedAt === null)) &&
@@ -202,28 +227,48 @@
     input.value = value;
     return input;
   }
+
+  function starButton(ctx, item, withLabel = false, afterChange = null) {
+    const control = button("", "task-star", () => {
+      item.knowledgeCandidate = !item.knowledgeCandidate;
+      item.updatedAt = new Date().toISOString();
+      refresh();
+      void ctx.persist().then(() =>
+        ctx.notify(item.knowledgeCandidate ? "ナレッジ候補に設定しました" : "ナレッジ候補を解除しました")
+      ).catch(() => {});
+      if (afterChange) afterChange();
+    });
+    function refresh() {
+      const marked = item.knowledgeCandidate;
+      control.textContent = (marked ? "★" : "☆") + (withLabel ? " ナレッジ候補" : "");
+      control.classList.toggle("active", marked);
+      control.setAttribute("aria-pressed", String(marked));
+      control.setAttribute("aria-label", (marked ? "ナレッジ候補を解除：" : "ナレッジ候補に設定：") + item.title);
+      control.title = marked ? "ナレッジ候補を解除" : "ナレッジ候補に設定";
+    }
+    refresh();
+    return control;
+  }
+
   function openDetail(ctx, id, focusHistory = false) {
     selectedId = id;
+    detailEditor = null;
     addHistoryNow = focusHistory;
     ctx.render();
     if (focusHistory) document.getElementById("task-history-input")?.focus();
   }
-  function toggleDone(ctx, item, saveFields = null) {
-    if (saveFields && !saveFields()) return;
+  function toggleDone(ctx, item) {
     const oldValue = item.completedAt;
     item.completedAt = oldValue ? null : new Date().toISOString();
     item.updatedAt = new Date().toISOString();
     const newValue = item.completedAt;
-    // 完了は確認なし。誤操作はトーストで元に戻せる。
+    // 一覧からは即時に完了。通知の「元に戻す」で取り消せる。
     void ctx.persist().then(() => ctx.notify(newValue ? "完了しました" : "未完了に戻しました", () => {
       item.completedAt = oldValue;
       item.updatedAt = new Date().toISOString();
       void ctx.persist();
       ctx.render();
     })).catch(() => {});
-    if (selectedId === null && statusFilter === "open" && newValue) {
-      // 完了は既定一覧から消えるが「完了」フィルターから確認できる。
-    }
     ctx.render();
   }
   function createTask(ctx, title, memo = "") {
@@ -245,6 +290,7 @@
     note(ctx, "メモを登録しました");
   }
   function renderList(main, ctx) {
+    detailEditor = null;
     const tasks = ctx.state.tasks.items;
     const header = el("div", { class: "task-heading" }, [
       el("strong", { text: "メモ・タスク" }),
@@ -260,6 +306,7 @@
     });
     quick.append(title, button("＋ 登録", "button-primary", add));
     main.append(quick);
+
     const search = el("input", {
       type: "search", class: "task-input", value: query,
       placeholder: "件名・メモ・回答から検索", "aria-label": "メモ・タスクを検索"
@@ -282,6 +329,7 @@
     const list = el("div", { class: "task-list" });
     main.append(list);
     search.addEventListener("input", () => { query = search.value; updateRows(); });
+
     function updateRows() {
       list.replaceChildren();
       const needle = query.trim().toLocaleLowerCase("ja-JP");
@@ -289,7 +337,7 @@
         (statusFilter === "all" || (statusFilter === "done" ? item.completedAt !== null : item.completedAt === null)) &&
         (!knowledgeFilter || item.knowledgeCandidate) &&
         (!needle || [item.title, item.memo, item.finalAnswer, item.references,
-          ...item.history.map((h) => h.text)].some((s) => s.toLocaleLowerCase("ja-JP").includes(needle))));
+          ...item.history.map((h) => h.text)].some((v) => v.toLocaleLowerCase("ja-JP").includes(needle))));
       shown.sort((a, b) => {
         if (sortOrder === "due") {
           if (!a.dueDate) return b.dueDate ? 1 : b.updatedAt.localeCompare(a.updatedAt);
@@ -305,34 +353,39 @@
         return;
       }
       for (const item of shown) {
-        const today = localDate();
-        const overdue = !item.completedAt && item.dueDate && item.dueDate < today;
-        const dueToday = !item.completedAt && item.dueDate === today;
-        const checked = el("input", {
-          type: "checkbox", class: "task-complete", checked: Boolean(item.completedAt),
+        const overdue = !item.completedAt && item.dueDate && item.dueDate < localDate();
+        const dueToday = !item.completedAt && item.dueDate === localDate();
+        const name = el("button", { type: "button", class: "task-name", onClick: () => openDetail(ctx, item.id) },
+          [el("span", { text: item.title }), el("span", { class: "task-muted",
+            text: ticketNo(item) + " · 履歴" + item.history.length + "件" })]);
+        const header = el("div", { class: "task-item-header" }, [
+          name, starButton(ctx, item, false, () => { if (knowledgeFilter) updateRows(); })
+        ]);
+        const row = el("div", { class: "task-item" }, [header]);
+        const preview = latestPreview(item);
+        if (preview) {
+          row.append(el("div", { class: "task-preview" }, [
+            el("span", { class: "task-preview-label", text: preview.label }),
+            el("div", { class: "task-preview-text", text: preview.text })
+          ]));
+        }
+        if (item.dueDate) row.append(el("div", {
+          class: overdue ? "task-overdue task-due" : dueToday ? "task-today task-due" : "task-muted task-due",
+          text: (overdue ? "期限超過 " : "期限 ") + item.dueDate
+        }));
+        const checked = el("input", { type: "checkbox", class: "task-complete",
+          checked: Boolean(item.completedAt),
           "aria-label": item.title + (item.completedAt ? "を未完了に戻す" : "を完了にする"),
           onChange: () => toggleDone(ctx, item)
         });
-        const name = el("button", { type: "button", class: "task-name", onClick: () => openDetail(ctx, item.id) },
-          [el("span", { text: item.title }), el("span", { class: "task-muted", text: ticketNo(item) +
-            " · 履歴 " + item.history.length + "件" })]);
-        const response = el("span", { class: "task-answer-badge " +
-          (item.finalAnswer.trim() ? "task-answer-yes" : "task-answer-no"),
-          text: item.finalAnswer.trim() ? "回答記録あり" : "回答記録なし" });
-        const tags = el("div", { class: "task-tags" }, [
-          item.knowledgeCandidate ? el("span", { class: "task-knowledge", text: "★ 候補" }) : null,
-          item.dueDate ? el("span", { class: overdue ? "task-overdue" : dueToday ? "task-today" : "task-muted",
-            text: (overdue ? "期限超過 " : "期限 ") + item.dueDate }) : null,
-          response
-        ]);
-        const row = el("div", { class: "task-item" }, [
-          el("div", { class: "task-item-main" }, [checked, name]),
-          tags,
+        const done = el("label", { class: "task-complete-label" }, [checked, el("span", { text: "完了" })]);
+        row.append(el("div", { class: "task-item-footer" }, [
+          done,
           el("div", { class: "task-item-actions" }, [
             button("＋ 追記", "button-secondary", () => openDetail(ctx, item.id, true)),
             button("詳細", "button-plain", () => openDetail(ctx, item.id))
           ])
-        ]);
+        ]));
         list.append(row);
       }
     }
@@ -370,51 +423,90 @@
     main.append(box);
   }
   function renderDetail(main, ctx, item) {
-    main.append(button("← 一覧に戻る", "button-plain", () => {
-      selectedId = null; addHistoryNow = false; ctx.render();
-    }));
+    const back = button("← 一覧に戻る", "button-plain task-back", () => {
+      if (!confirmLeave()) return;
+      ctx.render();
+    });
+    main.append(back);
     main.append(el("div", { class: "task-detail-heading" }, [
       el("strong", { text: ticketNo(item) }),
       el("span", { class: "task-muted", text: "登録：" + stamp(item.createdAt) })
     ]));
+
     const title = textInput("件名", item.title);
     title.maxLength = MAX_TITLE;
-    const memo = textArea("電話内容・作業内容など", item.memo, 4);
+    const memo = textArea("受付内容・作業内容", item.memo, 3);
     memo.maxLength = MAX_MEMO;
     const due = el("input", { type: "date", class: "task-input", value: item.dueDate });
-    const answer = textArea("最終回答・対応結果（任意）", item.finalAnswer, 4);
+    const answer = textArea("最終回答・対応結果", item.finalAnswer, 3);
     answer.maxLength = MAX_ANSWER;
-    const references = textArea("資料名、根拠となるURLなど（任意）", item.references, 2);
+    const references = textArea("資料名・参考URLなど", item.references, 2);
     references.maxLength = MAX_REFERENCE;
-    const candidate = el("input", { type: "checkbox", checked: item.knowledgeCandidate });
+    detailEditor = { item, title, memo, due, answer, references, historyInput: null };
+
     const saveFields = (showToast = false) => {
       if (!title.value.trim() || title.value.length > MAX_TITLE || memo.value.length > MAX_MEMO ||
           answer.value.length > MAX_ANSWER || references.value.length > MAX_REFERENCE ||
           !validDate(due.value)) {
-        ctx.notify("入力内容を確認してください。件名は必須です。"); return false;
+        ctx.notify("入力内容を確認してください。件名は必須です。");
+        return false;
       }
       const changed = item.title !== title.value.trim() || item.memo !== memo.value ||
         item.dueDate !== due.value || item.finalAnswer !== answer.value ||
-        item.references !== references.value || item.knowledgeCandidate !== candidate.checked;
+        item.references !== references.value;
       if (changed) {
         Object.assign(item, {
           title: title.value.trim(), memo: memo.value, dueDate: due.value,
           finalAnswer: answer.value, references: references.value,
-          knowledgeCandidate: candidate.checked, updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString()
         });
         void ctx.persist().then(() => { if (showToast) ctx.notify("変更を保存しました"); }).catch(() => {});
       } else if (showToast) ctx.notify("変更はありません");
       return true;
     };
-    const details = el("section", { class: "task-detail" }, [
+
+    const done = el("input", { type: "checkbox", class: "task-complete", checked: Boolean(item.completedAt),
+      "aria-label": "完了", onChange: () => {
+        const reject = () => { done.checked = Boolean(item.completedAt); };
+        if (detailEditor?.historyInput?.value.trim()) {
+          ctx.notify("入力中の対応履歴を先に保存してください。");
+          reject();
+          return;
+        }
+        if (hasUnsavedDetail() &&
+            !confirm("編集中の基本情報と回答を保存し、完了状態を切り替えますか？")) {
+          reject();
+          return;
+        }
+        if (!saveFields()) { reject(); return; }
+        toggleDone(ctx, item);
+      }
+    });
+    const status = el("div", { class: "task-detail-status" }, [
+      el("label", { class: "task-complete-label" }, [done, el("span", { text: "完了" })]),
+      starButton(ctx, item, true)
+    ]);
+    main.append(status);
+
+    main.append(el("section", { class: "task-detail-section task-detail-info" }, [
+      el("h2", { text: "基本情報" }),
       buttonLabel("件名", title),
       buttonLabel("メモ", memo),
-      buttonLabel("期限（任意）", due),
-      el("label", { class: "task-check-label" }, [candidate, "★ ナレッジ候補にする"]),
-      button("変更を保存", "button-secondary full", () => { if (saveFields(true)) ctx.render(); })
-    ]);
-    main.append(details);
-    const history = el("section", { class: "task-detail" }, [el("h2", { text: "対応履歴" })]);
+      buttonLabel("期限（任意）", due)
+    ]));
+    main.append(el("section", { class: "task-detail-section task-detail-answer" }, [
+      el("h2", { text: "回答・結果" }),
+      buttonLabel("最終回答・対応結果", answer),
+      buttonLabel("参考情報（任意）", references),
+      button("変更を保存", "button-primary full", () => {
+        if (saveFields(true)) {
+          // 入力位置を変えず、編集中の対応履歴も残す。
+        }
+      })
+    ]));
+
+    const history = el("section", { class: "task-detail-section task-detail-history" },
+      [el("h2", { text: "対応履歴" })]);
     if (item.history.length) {
       const ordered = [...item.history].sort((a, b) => a.at.localeCompare(b.at));
       for (const entry of ordered) history.append(el("div", { class: "task-history" }, [
@@ -426,8 +518,14 @@
       const input = textArea("確認・連絡・作業したことを追記", "", 3);
       input.id = "task-history-input";
       input.maxLength = MAX_HISTORY_TEXT;
+      detailEditor.historyInput = input;
       history.append(input, el("div", { class: "task-item-actions" }, [
-        button("キャンセル", "button-plain", () => { addHistoryNow = false; ctx.render(); }),
+        button("キャンセル", "button-plain", () => {
+          if (input.value.trim() && !confirm("入力中の対応履歴を破棄しますか？")) return;
+          addHistoryNow = false;
+          if (!saveFields()) return;
+          ctx.render();
+        }),
         button("履歴を保存", "button-primary", () => {
           if (!input.value.trim()) { ctx.notify("履歴を入力してください。"); return; }
           if (item.history.length >= MAX_HISTORY) {
@@ -448,19 +546,13 @@
       document.getElementById("task-history-input")?.focus();
     }));
     main.append(history);
-    main.append(el("section", { class: "task-detail" }, [
-      el("h2", { text: "最終回答・対応結果" }),
-      buttonLabel("最終回答・対応結果（任意）", answer),
-      buttonLabel("参考情報（任意）", references),
-      button("回答・参考情報を保存", "button-secondary full", () => { if (saveFields(true)) ctx.render(); })
-    ]));
-    main.append(button(item.completedAt ? "未完了に戻す" : "✓ 対応完了",
-      item.completedAt ? "button-secondary full" : "button-primary full",
-      () => toggleDone(ctx, item, saveFields)));
-    main.append(button("このメモを削除", "button-plain full", () => {
+    main.append(button("このメモを削除", "button-plain full task-delete", () => {
+      if (hasUnsavedDetail() && !confirm("未保存の変更があります。破棄して削除しますか？")) return;
       if (!confirm("このメモと対応履歴を削除します。元に戻せません。続けますか？")) return;
       ctx.state.tasks.items = ctx.state.tasks.items.filter((task) => task.id !== item.id);
       selectedId = null;
+      detailEditor = null;
+      addHistoryNow = false;
       note(ctx, "メモを削除しました");
     }));
   }
@@ -468,7 +560,8 @@
     if (!ctx.state.tasks) ctx.state.tasks = emptyData();
     const item = selectedId && ctx.state.tasks.items.find((entry) => entry.id === selectedId);
     if (item) renderDetail(main, ctx, item);
-    else { selectedId = null; renderList(main, ctx); }
+    else { selectedId = null; detailEditor = null; renderList(main, ctx); }
   }
-  window.UraTasks = { render, validate, emptyData, makeExport };
+  window.UraTasks = { render, validate, emptyData, makeExport, confirmLeave, hasUnsavedDetail,
+    helpers: Object.freeze({ latestPreview }) };
 })();
