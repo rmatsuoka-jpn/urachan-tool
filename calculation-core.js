@@ -314,8 +314,12 @@
         if (o.usePackage) items.push(result("パック料金", pack, "円"));
         if (extras.n) items.push(result("その他交通費", extras, "円"));
         formula = "1人・1回あたりの費目合計 × " + people + "人 × " + trips + "回";
+        const missing = [];
+        if (!o.usePackage && o.fareMode !== "items" && String(input.fare == null ? "" : input.fare).trim() === "") missing.push("交通費");
+        if (!o.usePackage && nights > 0 && String(input.hotelRate == null ? "" : input.hotelRate).trim() === "") missing.push("宿泊費");
+        if (!perDiem) missing.push("日当・手当");
+        if (missing.length) note += (note ? " " : "") + "未計上：" + missing.join("・") + "。";
         note += (note ? " " : "") + "概算用です。正式な旅費支給額は算定しません。";
-        if (!perDiem) note += " 手当は未計上です。";
         break;
       }
       default: fail("計算機能が見つかりません。");
